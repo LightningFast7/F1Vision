@@ -129,14 +129,7 @@
 
     <div class="main-layout">
         <section class="champpoints-list" id="leaderboard">
-            <div class="driver-row" id="row-14">
-                <span class="name">14 ALO</span>
-                <span id="pts-14" class="points">0 pts</span>
-            </div>
-            <div class="driver-row" id="row-1">
-                <span class="name">1 VER</span>
-                <span id="pts-1" class="points">0 pts</span>
-            </div>
+
         </section>
 
         <section class="map-view">
@@ -168,7 +161,7 @@
         let scale = 1, offsetX = 0, offsetY = 0;
         let trackPath = new Path2D();
 
-        // State Management (Your Playback System)
+        // State Management
         let currentTime;
         let playbackSpeed = 20; // Default speed multiplier
         let isPaused = true;
@@ -177,7 +170,7 @@
         let lastFrameTime = 0;
         let pointers = {};
 
-        // 1. Fetch & Group Data (Partner's Logic)
+        // Fetch & Group Data
         async function fetchRaceData() {
             const response = await fetch('/racer/map/api/locations/all/9094/');
             const result = await response.json();
@@ -198,7 +191,7 @@
             currentTime = earliestTime;
         }
 
-        // 2. Scaling (Partner's Logic)
+        // Scaling
         function calculateScale() {
             const trackWidth = maxX - minX;
             const trackHeight = maxY - minY;
@@ -215,6 +208,29 @@
             });
         }
 
+        function generateLeaderboard() {
+            const leaderboard = document.getElementById('leaderboard');
+            leaderboard.innerHTML = '';
+            const sortedDrivers = Object.keys(driversData).sort((a, b) => parseInt(a) - parseInt(b));
+
+            sortedDrivers.forEach(driverNum => {
+                const row = document.createElement('div');
+                row.className = 'driver-row';
+                row.id = `row-${driverNum}`;
+                row.innerHTML = `<span class="name">${driverNum} DRIVER</span>
+                <span id="pts-${driverNum}" class = "points">0 pts </span>`;
+                row.addEventListener('mouseenter', () => {
+                    hoveredRacer = driverNum;
+                    row.classList.add('highlighted');
+                });
+                row.addEventListener('mouseleave', () => {
+                    hoveredRacer = null;
+                    row.classList.remove('highlighted');
+                });
+                leaderboard.appendChild(row);
+            });
+        }
+
         function getCanvasCoords(rawX, rawY) {
             return {
                 x: ((rawX - minX) * scale) + offsetX,
@@ -222,39 +238,38 @@
             };
         }
 
-        // 3. Unified Animation Loop
+        // Unified Animation Loop
         function render(now) {
-            if (isPaused) {
-                lastFrameTime = now;
-                requestAnimationFrame(render);
-                return;
-            }
-
+            // Calculate deltaTime but don't move currentTime if paused
             let deltaTime = now - lastFrameTime;
             lastFrameTime = now;
 
-            if (isReversing) {
-                currentTime -= deltaTime * playbackSpeed;
-            } else {
-                currentTime += deltaTime * playbackSpeed;
+            if (!isPaused) {
+                if (isReversing) {
+                    currentTime -= deltaTime * playbackSpeed;
+                } else {
+                    currentTime += deltaTime * playbackSpeed;
+                }
+
+                // Boundary Checks
+                if (currentTime < earliestTime) currentTime = earliestTime;
+                if (currentTime > latestTime) {
+                    isPaused = true;
+                    btn.innerText = "FINISHED";
+                }
             }
 
-            if (currentTime < earliestTime) currentTime = earliestTime;
-            if (currentTime > latestTime) {
-                isPaused = true;
-                btn.innerText = "FINISHED";
-            }
-
+            // This part now runs EVERY frame, even when paused!
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // Draw Track
             ctx.strokeStyle = '#444';
             ctx.lineWidth = 2;
             ctx.stroke(trackPath);
 
+            // Draw Drivers
             for (let driver in driversData) {
                 let pts = driversData[driver];
-
-                // pts[p] is now [x, y, time]
                 let p = 0;
                 while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) {
                     p++;
@@ -262,10 +277,10 @@
 
                 let currentPoint = pts[p];
                 if (currentPoint) {
-                    // Index 0 is X, Index 1 is Y
                     const coords = getCanvasCoords(currentPoint[0], currentPoint[1]);
-                    const isHovered = hoveredRacer === driver;
+                    const isHovered = (hoveredRacer === driver); // This check is now live!
 
+                    // Visuals
                     ctx.fillStyle = isHovered ? '#ff0000' : '#00ff00';
                     ctx.shadowBlur = isHovered ? 15 : 0;
                     ctx.shadowColor = "red";
@@ -278,25 +293,20 @@
                     ctx.fillStyle = "white";
                     ctx.font = isHovered ? "bold 14px Arial" : "11px Arial";
                     ctx.fillText(driver, coords.x + 8, coords.y - 8);
-
-                    const ptsDisplay = document.getElementById(`pts-${driver}`);
-                    if (ptsDisplay) {
-                        const progress = (currentTime - earliestTime) / (latestTime - earliestTime);
-                        ptsDisplay.innerText = Math.floor(progress * 25) + " pts";
-                    }
                 }
             }
 
-            document.getElementById('timeDisplay').innerText = new Date(currentTime).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' });
+            // Keep the loop alive so it can listen for hover changes
             requestAnimationFrame(render);
         }
 
-        // 4. Playback Listeners (Your logic)
+        // Playback Listeners
         btn.addEventListener('click', async () => {
             if (Object.keys(driversData).length === 0) {
                 btn.innerText = "LOADING...";
                 await fetchRaceData();
                 calculateScale();
+                generateLeaderboard();
                 lastFrameTime = performance.now();
                 requestAnimationFrame(render);
             }
@@ -309,7 +319,7 @@
         document.getElementById('slowMotion').onclick = () => { playbackSpeed = 5; isReversing = false; isPaused = false; };
         document.getElementById('prevFrame').onclick = () => { isReversing = true; isPaused = false; };
 
-        // 5. Hover Logic (Your logic)
+        // Hover Logic
         document.querySelectorAll('.driver-row').forEach(row => {
             const id = row.id.split('-')[1]; // Get '14' from 'row-14'
             row.addEventListener('mouseenter', () => {
