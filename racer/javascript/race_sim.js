@@ -2,8 +2,8 @@ const canvas = document.getElementById('trackCanvas');
 const ctx = canvas.getContext('2d');
 
 let raceData = [];
-let minX = Infinity, maxX = -Infinity;
-let minY = Infinity, maxY = -Infinity;
+let earliestTime, latestTime;
+let minX, maxX, minY, maxY;
 let scale = 1;
 let offsetX = 0, offsetY = 0;
 
@@ -14,11 +14,15 @@ async function fetchRaceData() {
         const data = await response.json();
         
         // Filter out bad GPS points (null or exactly 0) so we don't get crazy straight lines
-        raceData = data.locations.filter(point => 
-            point.x != null && point.y != null && 
-            point.x !== 0 && point.y !== 0
-        );
+        raceData = data.drivers;
         
+        minX=data.bounds.minX
+        maxX=data.bounds.maxX
+        minY=data.bounds.minY
+        maxY=data.bounds.maxY
+
+        earliestTime=data.time.start;
+        latestTime=data.time.end;
     } catch (error) {
         console.error("Error fetching data:", error);
         alert("Make sure you ran the Python fetch script first!");
@@ -27,14 +31,6 @@ async function fetchRaceData() {
 
 // 2. Calculate the boundaries so the track fits the canvas
 function calculateScale() {
-    if (raceData.length === 0) return;
-
-    raceData.forEach(point => {
-        if (point.x < minX) minX = point.x;
-        if (point.x > maxX) maxX = point.x;
-        if (point.y < minY) minY = point.y;
-        if (point.y > maxY) maxY = point.y;
-    });
 
     const trackWidth = maxX - minX;
     const trackHeight = maxY - minY;
@@ -44,7 +40,6 @@ function calculateScale() {
     const scaleY = canvas.height / trackHeight;
     
     scale = Math.min(scaleX, scaleY) * padding;
-    
     offsetX = (canvas.width - (trackWidth * scale)) / 2;
     offsetY = (canvas.height - (trackHeight * scale)) / 2;
 }
@@ -59,58 +54,67 @@ function getCanvasCoords(rawX, rawY) {
 
 // 4. The Animation Loop
 function simulateRace() {
-    if (raceData.length === 0) return;
-
+    const track_path = new Path2D();
+    const outlineDriver = driversData['14'] || Object.values(driversData)[0];
     let currentIndex = 0;
     
-    // Draw the clean outline of the whole track first
-    ctx.strokeStyle = '#444';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    raceData.forEach((point, index) => {
-        const coords = getCanvasCoords(point.x, point.y);
-        if (index === 0) ctx.moveTo(coords.x, coords.y);
-        else ctx.lineTo(coords.x, coords.y);
+    outlineDriver.forEach((point, index) => {
+        // Now using point[0] for X and point[1] for Y
+        const coords = getCanvasCoords(point[0], point[1]);
+        if (index === 0) trackPath.moveTo(coords.x, coords.y);
+        else trackPath.lineTo(coords.x, coords.y);
     });
-    ctx.stroke();
 
-    // The loop that moves the car
-    function drawNextFrame() {
-        if (currentIndex >= raceData.length - 1) {
+    let currentTime = earliestTime; 
+    let playbackSpeed = 20; 
+    let lastFrameTime = performance.now();
+    
+    let pointers = {};
+    for (let driver in driversData) { pointers[driver] = 0; }
+
+    function render(now) {
+        if (currentTime > latestTime) {
             document.getElementById('startRace').innerText = "Race Finished";
-            return; 
+            return;
         }
 
-        const currentPoint = raceData[currentIndex];
-        const nextPoint = raceData[currentIndex + 1];
-        const coords = getCanvasCoords(currentPoint.x, currentPoint.y);
+        let deltaTime = now - lastFrameTime;
+        lastFrameTime = now;
+        currentTime += deltaTime * playbackSpeed;
 
-        // Clear the canvas before drawing the next dot so it doesn't smear
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Because we cleared the canvas, we have to redraw the track outline underneath the car
-        ctx.stroke();
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 2;
+        ctx.stroke(trackPath);
 
-        // Draw the car 
-        ctx.fillStyle = '#00ff00'; 
-        ctx.beginPath();
-        ctx.arc(coords.x, coords.y, 5, 0, Math.PI * 2);
-        ctx.fill();
+        for (let driver in driversData) {
+            let pts = driversData[driver];
+            let p = pointers[driver];
 
-        // Calculate time diff
-        let timeDiff = new Date(nextPoint.date).getTime() - new Date(currentPoint.date).getTime();
-        
-        // Fast-forward through garage wait times and pit stops!
-        if (timeDiff > 1000 || isNaN(timeDiff)) {
-            timeDiff = 20; // Skip the wait and jump to the next point in 20 milliseconds
+            // Advance pointer. pts[p+1][2] is the timestamp in milliseconds!
+            while (p < pts.length - 1 && pts[p+1][2] <= currentTime) {
+                p++;
+            }
+            pointers[driver] = p; 
+
+            let currentPoint = pts[p];
+            if (currentPoint) {
+                const coords = getCanvasCoords(currentPoint[0], currentPoint[1]);
+                
+                ctx.fillStyle = '#00ff00'; 
+                ctx.beginPath();
+                ctx.arc(coords.x, coords.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = "white";
+                ctx.font = "12px Arial";
+                ctx.fillText(driver, coords.x + 6, coords.y - 6);
+            }
         }
-        
-        currentIndex++;
-        
-        setTimeout(drawNextFrame, timeDiff);
-    }
 
-    drawNextFrame(); // Kick off the loop
+        requestAnimationFrame(render); 
+    }
+    requestAnimationFrame(render);
 }
 
 // 5. Hook it all up to the button
@@ -122,6 +126,6 @@ document.getElementById('startRace').addEventListener('click', async () => {
     await fetchRaceData();
     calculateScale();
     
-    btn.innerText = "Race in Progress";
+    btn.innerText = 'Race in Progress (${Object.keys(raceData).length} Drivers)';
     simulateRace();
 });
