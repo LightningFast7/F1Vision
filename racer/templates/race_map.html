@@ -140,7 +140,7 @@
 
 <body>
     <header>
-        <h1>2023 Monaco GP</h1>
+        <h1>2023 Monaco GP - <span id="lapDisplay">LAP 1</span></h1>
     </header>
 
     <div class="main-layout">
@@ -166,6 +166,9 @@
 
             <div class="controls">
                 <button id="startRace">START RACE</button>
+                <button id="prevFrame">REVERSE</button>
+                <button id="slowMotion">0.5x</button>
+                <button id="fastForward">2x</button>
                 <div id="telemetry-panel">
                     DATA POINTS: <span id="frameCounter">0</span>
                 </div>
@@ -174,147 +177,180 @@
     </div>
 
     <script>
-        const tCanvas = document.getElementById('trackCanvas');
-        const rCanvas = document.getElementById('racerCanvas');
-        const tCtx = tCanvas.getContext('2d');
-        const rCtx = rCanvas.getContext('2d');
-        const btn = document.getElementById('startRace');
-        const frameDisplay = document.getElementById('frameCounter');
+    const tCanvas = document.getElementById('trackCanvas');
+    const rCanvas = document.getElementById('racerCanvas');
+    const tCtx = tCanvas.getContext('2d');
+    const rCtx = rCanvas.getContext('2d');
+    const btn = document.getElementById('startRace');
+    const frameDisplay = document.getElementById('frameCounter');
 
-        let raceData = [];
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-        let scale = 1;
-        let offsetX = 0, offsetY = 0;
-        let hoveredRacer = null;
+    let raceData = [];
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let scale = 1;
+    let offsetX = 0, offsetY = 0;
+    
+    // Global State
+    let currentIndex = 0; // Moved to global scope
+    let hoveredRacer = null;
+    let playbackSpeed = 1.0;
+    let isReversing = false;
+    let isPaused = false;
 
-        // 1. Fetch data from Django API Endpoint
-        async function fetchRaceData() {
-            try {
-                // Fetching via the relative URL you set up
-                const response = await fetch('api/locations/9094/14/');
-                const data = await response.json();
+    async function fetchRaceData() {
+        try {
+            const response = await fetch('api/locations/9094/14/');
+            const data = await response.json();
+            raceData = data.locations.filter(point =>
+                point.x != null && point.y != null && point.x !== 0 && point.y !== 0
+            );
+        } catch (error) {
+            console.error("Error fetching data:", error);
+            alert("API connection failed!");
+        }
+    }
 
-                // Filters out the 0 or null points causing the straight lines!
-                raceData = data.locations.filter(point =>
-                    point.x != null && point.y != null &&
-                    point.x !== 0 && point.y !== 0
-                );
-            } catch (error) {
-                console.error("Error fetching data:", error);
-                alert("Make sure you ran the Python fetch script first!");
-            }
+    function calculateScale() {
+        raceData.forEach(p => {
+            minX = Math.min(minX, p.x);
+            maxX = Math.max(maxX, p.x);
+            minY = Math.min(minY, p.y);
+            maxY = Math.max(maxY, p.y);
+        });
+        const trackW = maxX - minX, trackH = maxY - minY;
+        scale = Math.min(tCanvas.width / trackW, tCanvas.height / trackH) * 0.9;
+        offsetX = (tCanvas.width - (trackW * scale)) / 2;
+        offsetY = (tCanvas.height - (trackH * scale)) / 2;
+    }
+
+    function getCanvasCoords(rawX, rawY) {
+        return {
+            x: ((rawX - minX) * scale) + offsetX,
+            y: ((maxY - rawY) * scale) + offsetY
+        };
+    }
+
+    function drawTrackOutline() {
+        tCtx.strokeStyle = '#444';
+        tCtx.lineWidth = 3;
+        tCtx.beginPath();
+        raceData.forEach((p, i) => {
+            const c = getCanvasCoords(p.x, p.y);
+            if (i === 0) tCtx.moveTo(c.x, c.y);
+            else tCtx.lineTo(c.x, c.y);
+        });
+        tCtx.stroke();
+    }
+
+    // This is now your ONLY animation loop
+    function updateFrame() {
+        if (isPaused) return;
+
+        // Boundary checks
+        if (currentIndex >= raceData.length - 1 && !isReversing) {
+            btn.innerText = "FINISH";
+            return;
+        }
+        if (currentIndex <= 0 && isReversing) {
+            return;
         }
 
-        // 2. Calculate the boundaries so the track fits the canvas
-        function calculateScale() {
-            raceData.forEach(p => {
-                minX = Math.min(minX, p.x);
-                maxX = Math.max(maxX, p.x);
-                minY = Math.min(minY, p.y);
-                maxY = Math.max(maxY, p.y);
-            });
-            const trackW = maxX - minX, trackH = maxY - minY;
-            scale = Math.min(tCanvas.width / trackW, tCanvas.height / trackH) * 0.9; // 90% to add some padding
-            offsetX = (tCanvas.width - (trackW * scale)) / 2;
-            offsetY = (tCanvas.height - (trackH * scale)) / 2;
-        }
+        const p = raceData[currentIndex];
+        const nextP = raceData[isReversing ? currentIndex - 1 : currentIndex + 1];
+        
+        if (!p || !nextP) return;
 
-        // 3. Convert F1 Coordinates to Canvas Pixels
-        function getCanvasCoords(rawX, rawY) {
-            return {
-                x: ((rawX - minX) * scale) + offsetX,
-                y: ((maxY - rawY) * scale) + offsetY
-            };
-        }
+        const coords = getCanvasCoords(p.x, p.y);
 
-        function drawTrackOutline() {
-            tCtx.strokeStyle = '#444';
-            tCtx.lineWidth = 3;
-            tCtx.beginPath();
-            raceData.forEach((p, i) => {
-                const c = getCanvasCoords(p.x, p.y);
-                if (i === 0) tCtx.moveTo(c.x, c.y);
-                else tCtx.lineTo(c.x, c.y);
-            });
-            tCtx.stroke();
+        // Render
+        rCtx.clearRect(0, 0, rCanvas.width, rCanvas.height);
+        drawRacerDot(coords.x, coords.y, "ALO", "#008432", hoveredRacer === "14");
 
-        }
+        // Update UI
+        frameDisplay.innerText = currentIndex;
+        document.getElementById('pts-14').innerText = Math.floor((currentIndex / raceData.length) * 26) + " pts";
 
-        // 4. The Animation Loop
-        function simulateRace() {
-            let currentIndex = 0;
+        // Timing
+        let timeDiff = Math.abs(new Date(nextP.date).getTime() - new Date(p.date).getTime());
+        if (timeDiff > 1000 || isNaN(timeDiff)) timeDiff = 30;
 
-            // The loop that moves the car
-            function drawNextFrame() {
-                if (currentIndex >= raceData.length - 1) {
-                    btn.innerText = "FINISH";
-                    return;
-                }
+        // Increment/Decrement based on direction
+        isReversing ? currentIndex-- : currentIndex++;
 
-                const p = raceData[currentIndex];
-                const nextP = raceData[currentIndex + 1];
-                const coords = getCanvasCoords(p.x, p.y);
+        setTimeout(updateFrame, timeDiff / playbackSpeed);
+    }
 
-                // Clear only the racer layer
-                rCtx.clearRect(0, 0, rCanvas.width, rCanvas.height);
+    function drawRacerDot(x, y, name, color, isHighlighted) {
+        const radius = isHighlighted ? 12 : 6;
+        const drawColor = isHighlighted ? '#ff0000' : color;
 
-                // Alonso
-                const isHighlighted = (hoveredRacer === "14");
-                drawRacerDot(coords.x, coords.y, "ALO", "#008432", isHighlighted);
-
-                // points update
-                document.getElementById('pts-14').innerText = Math.floor((currentIndex / raceData.length) * 26) + " pts"; // Simulated points based on progress
-                frameDisplay.innerText = currentIndex;
-
-                let timeDiff = new Date(nextP.date).getTime() - new Date(p.date).getTime();
-                if (timeDiff < 1000 || isNaN(timeDiff)) timeDiff = 30;
-                currentIndex++;
-                setTimeout(drawNextFrame, timeDiff);
-
-            }
-
-            drawNextFrame(); // Kick off the loop
-        }
-
-        function drawRacerDot(x, y, name, color, isHighlighted) {
-            const radius = isHighlighted ? 12 : 6;
-            const drawColor =  isHighlighted ? '#ff0000' : color;
-            
-            rCtx.shadowBlur = isHighlighted ? 15 : 0;
+        rCtx.save();
+        if (isHighlighted) {
+            rCtx.shadowBlur = 15;
             rCtx.shadowColor = "red";
-
-            rCtx.fillStyle = drawColor;
-            rCtx.beginPath();
-            rCtx.arc(x, y, radius, 0, Math.PI * 2);
-            rCtx.fill();
-
-            rCtx.shadowBlur = 0; // reset shadow
-            rCtx.fillStyle = "white";
-            rCtx.font = "bold 12px Arial";
-            rCtx.fillText(name, x + 12, y - 12);
         }
 
-        const alonsoRow = document.getElementById('row-14');
-        alonsoRow.addEventListener('mouseenter', () => {
-            hoveredRacer = "14";
-            alonsoRow.classList.add('highlighted');
-        });
-        alonsoRow.addEventListener('mouseleave', () => {
-            hoveredRacer = null;
-            alonsoRow.classList.remove('highlighted');
-        });
+        rCtx.fillStyle = drawColor;
+        rCtx.beginPath();
+        rCtx.arc(x, y, radius, 0, Math.PI * 2);
+        rCtx.fill();
+        rCtx.restore();
 
-        btn.addEventListener('click', async () => {
+        rCtx.fillStyle = "white";
+        rCtx.font = "bold 12px Arial";
+        rCtx.fillText(name, x + 12, y - 12);
+    }
+
+    // Control Listeners
+    btn.addEventListener('click', async () => {
+        if (raceData.length === 0) {
             btn.disabled = true;
             btn.innerText = "LOADING...";
             await fetchRaceData();
             calculateScale();
             drawTrackOutline();
-            btn.innerText = "RACING...";
-            simulateRace();
-        });
-    </script>
+
+            btn.disabled = false;
+            btn.innerText = "PAUSE";
+            isPaused = false;
+            updateFrame();
+        } else {
+            isPaused = !isPaused;
+            btn.innerText = isPaused ? "RESUME" : "PAUSE";
+            if (!isPaused) updateFrame();
+        }
+    });
+
+    // Fixed the typo "addEventListner" to "addEventListener"
+    document.getElementById('fastForward').addEventListener('click', () => {
+        playbackSpeed = 2.0;
+        isReversing = false;
+    });
+
+    document.getElementById('slowMotion').addEventListener('click', () => {
+        playbackSpeed = 0.5;
+        isReversing = false;
+    });
+
+    document.getElementById('prevFrame').addEventListener('click', () => {
+        isReversing = true;
+        playbackSpeed = 1.0;
+        if (isPaused) {
+            isPaused = false;
+            btn.innerText = "PAUSE";
+            updateFrame();
+        }
+    });
+
+    // Hover logic
+    const alonsoRow = document.getElementById('row-14');
+    alonsoRow.addEventListener('mouseenter', () => {
+        hoveredRacer = "14";
+    });
+    alonsoRow.addEventListener('mouseleave', () => {
+        hoveredRacer = null;
+    });
+</script>
 </body>
 
 </html>
