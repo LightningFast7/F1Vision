@@ -1,41 +1,65 @@
 import requests
 import json
 import os
+from datetime import datetime
 
-def download_driver_location(session_key):
-    print(f"Fetching data for Session {session_key}...")
+def download_optimized_locations(session_key):
+    print(f"Fetching driver list for Session {session_key}...")
     
-    # 1. Ping the OpenF1 API
-    url = f"https://api.openf1.org/v1/drivers?session_key={session_key}"
-    response = requests.get(url)
+    drivers_url = f"https://api.openf1.org/v1/drivers?session_key={session_key}"
+    drivers_data = requests.get(drivers_url).json()
+    driver_numbers = list(set([driver['driver_number'] for driver in drivers_data]))
     
-    if response.status_code != 200:
-        print(f"Failed to get the drivers list: Status: {response.status}")
-    drivers_list = response.json()
+    # We will build a perfectly pre-calculated dictionary for the frontend
+    optimized_data = {
+        "bounds": {"minX": float('inf'), "maxX": float('-inf'), "minY": float('inf'), "maxY": float('-inf')},
+        "time": {"start": float('inf'), "end": float('-inf')},
+        "drivers": {}
+    }
+    
+    print(f"Found {len(driver_numbers)} drivers. Compressing data...")
+    
+    for driver in driver_numbers:
+        print(f"Processing Driver {driver}...")
+        location_url = f"https://api.openf1.org/v1/location?session_key={session_key}&driver_number={driver}"
+        loc_response = requests.get(location_url)
         
-    driver_numbers = list(set([driver['driver_number'] for driver in drivers_list]))
-    print('Gate 1')
+        if loc_response.status_code == 200:
+            driver_points = []
+            
+            for pt in loc_response.json():
+                x, y, date_str = pt.get('x'), pt.get('y'), pt.get('date')
+                
+                # Filter out bad GPS points immediately
+                if x is not None and y is not None and x != 0 and y != 0:
+                    
+                    # Convert the text date into a simple integer (milliseconds)
+                    # The F1 API format ends in 'Z', which Python's fromisoformat handles if replaced with '+00:00'
+                    dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                    ts_ms = int(dt.timestamp() * 1000)
+                    
+                    # Add as a tiny array [x, y, time] instead of a huge dictionary
+                    driver_points.append([x, y, ts_ms])
+                    
+                    # Pre-calculate track boundaries and global time
+                    if x < optimized_data["bounds"]["minX"]: optimized_data["bounds"]["minX"] = x
+                    if x > optimized_data["bounds"]["maxX"]: optimized_data["bounds"]["maxX"] = x
+                    if y < optimized_data["bounds"]["minY"]: optimized_data["bounds"]["minY"] = y
+                    if y > optimized_data["bounds"]["maxY"]: optimized_data["bounds"]["maxY"] = y
+                    if ts_ms < optimized_data["time"]["start"]: optimized_data["time"]["start"] = ts_ms
+                    if ts_ms > optimized_data["time"]["end"]: optimized_data["time"]["end"] = ts_ms
 
-    locations = []
+            # Sort the driver's points by time just to be safe
+            driver_points.sort(key=lambda p: p[2])
+            optimized_data["drivers"][str(driver)] = driver_points
 
-    for number in driver_numbers:
-        print(f"Fetching locations for driver {number}")
-        location_url = f"https://api.openf1.org/v1/location?session_key={session_key}&driver_number={number}"
-        
-        locations_info = requests.get(location_url)
-
-        if locations_info.status_code == 200:
-            driver_locations = locations_info.json()
-            locations.extend(driver_locations)
-            print(f"dowloaded {len(driver_locations)} points")
-        else:
-            print(f"Failed to get driver {number} locations. Status code: {locations_info.status_code}")
+    # Save over the exact same file name so we don't have to change Django's views.py!
     os.makedirs('race_data', exist_ok=True)
     filepath = os.path.join('race_data', f"session_{session_key}_all.json")
-
-    with open(filepath, 'w') as file:
-        json.dump(locations, file)
     
-    print(f"\n Finished generating the results of {len(locations)} location points to {filepath}")
+    with open(filepath, 'w') as file:
+        json.dump(optimized_data, file)
+        
+    print(f"\nSUCCESS: Optimized data saved to {filepath}!")
 
-download_driver_location(9094)
+download_optimized_locations(9094)
