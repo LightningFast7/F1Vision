@@ -1,4 +1,6 @@
-import requests
+import json
+import os
+from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import render
 
@@ -7,13 +9,17 @@ def race_map_view(request):
     return render(request, 'race_map.html')
 
 def get_driver_locations(request, session_key, driver_number):
-    # Fetch data from OpenF1
-    url = f"https://api.openf1.org/v1/location?session_key={session_key}&driver_number={driver_number}"
-    response = requests.get(url)
+    # Construct the path to the file we saved
+    filename = f"driver_{driver_number}_session_{session_key}.json"
+    filepath = os.path.join(settings.BASE_DIR, 'race_data', filename)
     
-    if response.status_code == 200:
-        data = response.json()
-        # You might want to filter or downsample the data here to save bandwidth
+    try:
+        # Open the local file and load the JSON data
+        with open(filepath, 'r') as file:
+            data = json.load(file)
+            
+        # Send it directly to your frontend
         return JsonResponse({'locations': data})
-    else:
-        return JsonResponse({'error': 'Failed to fetch data'}, status=500)
+        
+    except FileNotFoundError:
+        return JsonResponse({'error': 'Data not downloaded yet. Run the fetch script!'}, status=404)
