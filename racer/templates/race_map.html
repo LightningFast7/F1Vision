@@ -30,10 +30,15 @@
         // 1. Fetch data from your Django Backend
         async function fetchRaceData() {
             try {
-                // This calls the urls.py route we set up in Django!
+                // Fetching via the relative URL you set up
                 const response = await fetch('api/locations/9094/14/');
                 const data = await response.json();
-                raceData = data.locations;
+                
+                // Filters out the 0 or null points causing the straight lines!
+                raceData = data.locations.filter(point => 
+                    point.x != null && point.y != null && 
+                    point.x !== 0 && point.y !== 0
+                );
             } catch (error) {
                 console.error("Error fetching data:", error);
                 alert("Make sure you ran the Python fetch script first!");
@@ -54,7 +59,7 @@
             const trackWidth = maxX - minX;
             const trackHeight = maxY - minY;
             
-            const padding = 0.9; // Leave a 10% margin so the car doesn't hit the walls
+            const padding = 0.9; 
             const scaleX = canvas.width / trackWidth;
             const scaleY = canvas.height / trackHeight;
             
@@ -68,7 +73,7 @@
         function getCanvasCoords(rawX, rawY) {
             return {
                 x: ((rawX - minX) * scale) + offsetX,
-                y: ((maxY - rawY) * scale) + offsetY // Invert the Y-axis for screen rendering
+                y: ((maxY - rawY) * scale) + offsetY 
             };
         }
 
@@ -78,16 +83,13 @@
 
             let currentIndex = 0;
             
-            // (Bonus) Draw a faint outline of the whole track first so we can see the layout
-            ctx.strokeStyle = '#444';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
+            // Save the track outline as a permanent 'Path2D' object
+            const trackPath = new Path2D();
             raceData.forEach((point, index) => {
                 const coords = getCanvasCoords(point.x, point.y);
-                if (index === 0) ctx.moveTo(coords.x, coords.y);
-                else ctx.lineTo(coords.x, coords.y);
+                if (index === 0) trackPath.moveTo(coords.x, coords.y);
+                else trackPath.lineTo(coords.x, coords.y);
             });
-            ctx.stroke();
 
             // The loop that moves the car
             function drawNextFrame() {
@@ -100,18 +102,29 @@
                 const nextPoint = raceData[currentIndex + 1];
                 const coords = getCanvasCoords(currentPoint.x, currentPoint.y);
 
-                // Draw the car (Aston Martin green, or Red for visibility!)
+                // 1. Erase the whiteboard
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // 2. Stamp the permanent track outline onto the board
+                ctx.strokeStyle = '#444';
+                ctx.lineWidth = 2;
+                ctx.stroke(trackPath);
+
+                // 3. Draw the green car dot over it
                 ctx.fillStyle = '#00ff00'; 
                 ctx.beginPath();
-                ctx.arc(coords.x, coords.y, 4, 0, Math.PI * 2);
+                ctx.arc(coords.x, coords.y, 5, 0, Math.PI * 2);
                 ctx.fill();
 
-                // Calculate the exact real-world time difference between these two points
-                const timeDiff = new Date(nextPoint.date).getTime() - new Date(currentPoint.date).getTime();
+                // Calculate time diff
+                let timeDiff = new Date(nextPoint.date).getTime() - new Date(currentPoint.date).getTime();
+                
+                // Fast-forwards the stagnant dot if the car is parked in the garage!
+                if (timeDiff > 1000 || isNaN(timeDiff)) {
+                    timeDiff = 20; 
+                }
                 
                 currentIndex++;
-                
-                // Wait for that exact time gap, then draw the next point
                 setTimeout(drawNextFrame, timeDiff);
             }
 
