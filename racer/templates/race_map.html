@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>F1 Vision: Live Race Replay</title>
+    <title>F1 Vision: Full Grid Replay</title>
     <style>
         :root {
             --f1-red: #e10600;
@@ -13,7 +13,7 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Segoe UI', sans-serif;
             background-color: var(--dark-bg);
             color: white;
             margin: 0;
@@ -29,17 +29,8 @@
             text-align: center;
         }
 
-        h1 {
-            margin: 0;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-        }
-
         .main-layout {
             display: flex;
-            flex-direction: row;
-            justify-content: center;
-            align-items: flex-start;
             width: 100%;
             max-width: 1400px;
             gap: 30px;
@@ -47,6 +38,7 @@
             box-sizing: border-box;
         }
 
+        /* Leaderboard Styling */
         .champpoints-list {
             width: 350px;
             background: var(--panel-bg);
@@ -55,6 +47,8 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
+            height: 600px;
+            overflow-y: auto;
         }
 
         .driver-row {
@@ -63,25 +57,21 @@
             background: #2b2b35;
             padding: 12px 15px;
             border-radius: 8px;
-            border-left: 6px solid var(--team-color);
-            transition: transform 0.2s;
+            border-left: 6px solid #444;
+            cursor: pointer;
+            transition: 0.2s;
         }
 
         .driver-row.highlighted {
             background: #444455;
             transform: translateX(10px);
-            border-color: #ff0000;
-        }
-
-        .pos {
-            font-weight: bold;
-            margin-right: 15px;
-            width: 20px;
+            border-left-color: var(--f1-red);
         }
 
         .name {
             flex-grow: 1;
             font-weight: bold;
+            margin-left: 10px;
         }
 
         .points {
@@ -89,20 +79,13 @@
             opacity: 0.8;
         }
 
-        .map-view {
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
+        /* Map Styling */
         #map-container {
             position: relative;
             width: 800px;
             height: 600px;
             background-color: #2b2b35;
             border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             overflow: hidden;
         }
 
@@ -117,7 +100,7 @@
             padding: 15px 30px;
             border-radius: 30px;
             display: flex;
-            gap: 20px;
+            gap: 15px;
             align-items: center;
             margin-top: 20px;
         }
@@ -126,7 +109,7 @@
             background: var(--f1-red);
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 10px 18px;
             border-radius: 5px;
             cursor: pointer;
             font-weight: bold;
@@ -139,88 +122,99 @@
 </head>
 
 <body>
+
     <header>
-        <h1>2023 Monaco GP</h1>
+        <h1>2023 Monaco GP - Live Replay</h1>
     </header>
 
     <div class="main-layout">
-        <section class="champpoints-list">
-            <div id="leaderboard">
-                <div class="driver-row" id="row-14" style="--team-color: #008432;">
-                    <span class="pos">1</span>
-                    <span class="name">ALO</span>
-                    <span id="pts-14" class="points">0 pts</span>
-                </div>
-                <div class="driver-row" style="--team-color: #36d1c4">
-                    <span class="pos">2</span>
-                    <span class="name">VER</span>
-                    <span id="pts-20" class="points">-- pts</span>
-                </div>
+        <section class="champpoints-list" id="leaderboard">
+            <div class="driver-row" id="row-14">
+                <span class="name">14 ALO</span>
+                <span id="pts-14" class="points">0 pts</span>
+            </div>
+            <div class="driver-row" id="row-1">
+                <span class="name">1 VER</span>
+                <span id="pts-1" class="points">0 pts</span>
             </div>
         </section>
+
         <section class="map-view">
             <div id="map-container">
                 <canvas id="trackCanvas" width="800" height="600"></canvas>
-                <canvas id="racerCanvas" width="800" height="600"></canvas>
             </div>
 
             <div class="controls">
                 <button id="startRace">START RACE</button>
-                <div id="telemetry-panel">
-                    DATA POINTS: <span id="frameCounter">0</span>
-                </div>
+                <button id="prevFrame">REVERSE</button>
+                <button id="slowMotion">0.5x</button>
+                <button id="normalSpeed">1x</button>
+                <button id="fastForward">2x</button>
+                <div id="telemetry">TIME: <span id="timeDisplay">00:00</span></div>
             </div>
         </section>
     </div>
 
     <script>
-        const tCanvas = document.getElementById('trackCanvas');
-        const rCanvas = document.getElementById('racerCanvas');
-        const tCtx = tCanvas.getContext('2d');
-        const rCtx = rCanvas.getContext('2d');
+        const canvas = document.getElementById('trackCanvas');
+        const ctx = canvas.getContext('2d');
         const btn = document.getElementById('startRace');
-        const frameDisplay = document.getElementById('frameCounter');
 
-        let raceData = [];
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-        let scale = 1;
-        let offsetX = 0, offsetY = 0;
+        // Data Storage
+        let driversData = {};
+        let earliestTime = Infinity;
+        let latestTime = -Infinity;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        let scale = 1, offsetX = 0, offsetY = 0;
+        let trackPath = new Path2D();
+
+        // State Management (Your Playback System)
+        let currentTime;
+        let playbackSpeed = 20; // Default speed multiplier
+        let isPaused = true;
+        let isReversing = false;
         let hoveredRacer = null;
+        let lastFrameTime = 0;
+        let pointers = {};
 
-        // 1. Fetch data from Django API Endpoint
+        // 1. Fetch & Group Data (Partner's Logic)
         async function fetchRaceData() {
-            try {
-                // Fetching via the relative URL you set up
-                const response = await fetch('api/locations/9094/14/');
-                const data = await response.json();
+            const response = await fetch('/racer/map/api/locations/all/9094/');
+            const result = await response.json();
+            const data = result.locations;
 
-                // Filters out the 0 or null points causing the straight lines!
-                raceData = data.locations.filter(point =>
-                    point.x != null && point.y != null &&
-                    point.x !== 0 && point.y !== 0
-                );
-            } catch (error) {
-                console.error("Error fetching data:", error);
-                alert("Make sure you ran the Python fetch script first!");
+            driversData = data.drivers;
+            minX = data.bounds.minX;
+            maxX = data.bounds.maxX;
+            minY = data.bounds.minY;
+            maxY = data.bounds.maxY;
+            earliestTime = data.time.start;
+            latestTime = data.time.end;
+
+            for (let d in driversData) {
+                pointers[d] = 0;
             }
+
+            currentTime = earliestTime;
         }
 
-        // 2. Calculate the boundaries so the track fits the canvas
+        // 2. Scaling (Partner's Logic)
         function calculateScale() {
-            raceData.forEach(p => {
-                minX = Math.min(minX, p.x);
-                maxX = Math.max(maxX, p.x);
-                minY = Math.min(minY, p.y);
-                maxY = Math.max(maxY, p.y);
+            const trackWidth = maxX - minX;
+            const trackHeight = maxY - minY;
+            scale = Math.min(canvas.width / trackWidth, canvas.height / trackHeight) * 0.9;
+            offsetX = (canvas.width - (trackWidth * scale)) / 2;
+            offsetY = (canvas.height - (trackHeight * scale)) / 2;
+
+            // Pre-draw track outline
+            trackPath = new Path2D();
+            const outlineDriver = driversData['14'] || driversData[Object.keys(driversData)[0]];
+            outlineDriver.forEach((p, i) => {
+                const c = getCanvasCoords(p[0], p[1]);
+                if (i === 0) trackPath.moveTo(c.x, c.y); else trackPath.lineTo(c.x, c.y);
             });
-            const trackW = maxX - minX, trackH = maxY - minY;
-            scale = Math.min(tCanvas.width / trackW, tCanvas.height / trackH) * 0.9; // 90% to add some padding
-            offsetX = (tCanvas.width - (trackW * scale)) / 2;
-            offsetY = (tCanvas.height - (trackH * scale)) / 2;
         }
 
-        // 3. Convert F1 Coordinates to Canvas Pixels
         function getCanvasCoords(rawX, rawY) {
             return {
                 x: ((rawX - minX) * scale) + offsetX,
@@ -228,92 +222,106 @@
             };
         }
 
-        function drawTrackOutline() {
-            tCtx.strokeStyle = '#444';
-            tCtx.lineWidth = 3;
-            tCtx.beginPath();
-            raceData.forEach((p, i) => {
-                const c = getCanvasCoords(p.x, p.y);
-                if (i === 0) tCtx.moveTo(c.x, c.y);
-                else tCtx.lineTo(c.x, c.y);
-            });
-            tCtx.stroke();
-
-        }
-
-        // 4. The Animation Loop
-        function simulateRace() {
-            let currentIndex = 0;
-
-            // The loop that moves the car
-            function drawNextFrame() {
-                if (currentIndex >= raceData.length - 1) {
-                    btn.innerText = "FINISH";
-                    return;
-                }
-
-                const p = raceData[currentIndex];
-                const nextP = raceData[currentIndex + 1];
-                const coords = getCanvasCoords(p.x, p.y);
-
-                // Clear only the racer layer
-                rCtx.clearRect(0, 0, rCanvas.width, rCanvas.height);
-
-                // Alonso
-                const isHighlighted = (hoveredRacer === "14");
-                drawRacerDot(coords.x, coords.y, "ALO", "#008432", isHighlighted);
-
-                // points update
-                document.getElementById('pts-14').innerText = Math.floor((currentIndex / raceData.length) * 26) + " pts"; // Simulated points based on progress
-                frameDisplay.innerText = currentIndex;
-
-                let timeDiff = new Date(nextP.date).getTime() - new Date(p.date).getTime();
-                if (timeDiff < 1000 || isNaN(timeDiff)) timeDiff = 30;
-                currentIndex++;
-                setTimeout(drawNextFrame, timeDiff);
-
+        // 3. Unified Animation Loop
+        function render(now) {
+            if (isPaused) {
+                lastFrameTime = now;
+                requestAnimationFrame(render);
+                return;
             }
 
-            drawNextFrame(); // Kick off the loop
+            let deltaTime = now - lastFrameTime;
+            lastFrameTime = now;
+
+            if (isReversing) {
+                currentTime -= deltaTime * playbackSpeed;
+            } else {
+                currentTime += deltaTime * playbackSpeed;
+            }
+
+            if (currentTime < earliestTime) currentTime = earliestTime;
+            if (currentTime > latestTime) {
+                isPaused = true;
+                btn.innerText = "FINISHED";
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = '#444';
+            ctx.lineWidth = 2;
+            ctx.stroke(trackPath);
+
+            for (let driver in driversData) {
+                let pts = driversData[driver];
+
+                // pts[p] is now [x, y, time]
+                let p = 0;
+                while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) {
+                    p++;
+                }
+
+                let currentPoint = pts[p];
+                if (currentPoint) {
+                    // Index 0 is X, Index 1 is Y
+                    const coords = getCanvasCoords(currentPoint[0], currentPoint[1]);
+                    const isHovered = hoveredRacer === driver;
+
+                    ctx.fillStyle = isHovered ? '#ff0000' : '#00ff00';
+                    ctx.shadowBlur = isHovered ? 15 : 0;
+                    ctx.shadowColor = "red";
+
+                    ctx.beginPath();
+                    ctx.arc(coords.x, coords.y, isHovered ? 8 : 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+
+                    ctx.fillStyle = "white";
+                    ctx.font = isHovered ? "bold 14px Arial" : "11px Arial";
+                    ctx.fillText(driver, coords.x + 8, coords.y - 8);
+
+                    const ptsDisplay = document.getElementById(`pts-${driver}`);
+                    if (ptsDisplay) {
+                        const progress = (currentTime - earliestTime) / (latestTime - earliestTime);
+                        ptsDisplay.innerText = Math.floor(progress * 25) + " pts";
+                    }
+                }
+            }
+
+            document.getElementById('timeDisplay').innerText = new Date(currentTime).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' });
+            requestAnimationFrame(render);
         }
 
-        function drawRacerDot(x, y, name, color, isHighlighted) {
-            const radius = isHighlighted ? 12 : 6;
-            const drawColor =  isHighlighted ? '#ff0000' : color;
-            
-            rCtx.shadowBlur = isHighlighted ? 15 : 0;
-            rCtx.shadowColor = "red";
-
-            rCtx.fillStyle = drawColor;
-            rCtx.beginPath();
-            rCtx.arc(x, y, radius, 0, Math.PI * 2);
-            rCtx.fill();
-
-            rCtx.shadowBlur = 0; // reset shadow
-            rCtx.fillStyle = "white";
-            rCtx.font = "bold 12px Arial";
-            rCtx.fillText(name, x + 12, y - 12);
-        }
-
-        const alonsoRow = document.getElementById('row-14');
-        alonsoRow.addEventListener('mouseenter', () => {
-            hoveredRacer = "14";
-            alonsoRow.classList.add('highlighted');
-        });
-        alonsoRow.addEventListener('mouseleave', () => {
-            hoveredRacer = null;
-            alonsoRow.classList.remove('highlighted');
-        });
-
+        // 4. Playback Listeners (Your logic)
         btn.addEventListener('click', async () => {
-            btn.disabled = true;
-            btn.innerText = "LOADING...";
-            await fetchRaceData();
-            calculateScale();
-            drawTrackOutline();
-            btn.innerText = "RACING...";
-            simulateRace();
+            if (Object.keys(driversData).length === 0) {
+                btn.innerText = "LOADING...";
+                await fetchRaceData();
+                calculateScale();
+                lastFrameTime = performance.now();
+                requestAnimationFrame(render);
+            }
+            isPaused = !isPaused;
+            btn.innerText = isPaused ? "RESUME" : "PAUSE";
         });
+
+        document.getElementById('fastForward').onclick = () => { playbackSpeed = 100; isReversing = false; isPaused = false; };
+        document.getElementById('normalSpeed').onclick = () => { playbackSpeed = 20; isReversing = false; isPaused = false; };
+        document.getElementById('slowMotion').onclick = () => { playbackSpeed = 5; isReversing = false; isPaused = false; };
+        document.getElementById('prevFrame').onclick = () => { isReversing = true; isPaused = false; };
+
+        // 5. Hover Logic (Your logic)
+        document.querySelectorAll('.driver-row').forEach(row => {
+            const id = row.id.split('-')[1]; // Get '14' from 'row-14'
+            row.addEventListener('mouseenter', () => {
+                hoveredRacer = id;
+                row.classList.add('highlighted');
+            });
+            row.addEventListener('mouseleave', () => {
+                hoveredRacer = null;
+                row.classList.remove('highlighted');
+            });
+        });
+
     </script>
 </body>
 
