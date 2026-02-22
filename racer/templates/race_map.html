@@ -282,7 +282,7 @@
     <a id="back-btn" href="/">&#8592; Main Menu</a>
 
     <header>
-        <h1>2023 Monaco GP - Live Replay</h1>
+        <h1>Live Replay</h1>
     </header>
 
     <div class="main-layout">
@@ -374,6 +374,10 @@
         const intCtx = intCanvas.getContext('2d');
         const btn = document.getElementById('startRace');
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const SESSION_KEY = urlParams.get('session') || '9094';
+
+        // Data Storage
         let earliestTime = Infinity;
         let latestTime = -Infinity;
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -423,48 +427,86 @@
         }
 
         async function fetchRaceData() {
+            const response = await fetch(`/racer/map/api/locations/all/${SESSION_KEY}/`);
+            const result = await response.json();
+            const data = result.locations;
+
+            driversData = data.drivers;
+            minX = data.bounds.minX;
+            maxX = data.bounds.maxX;
+            minY = data.bounds.minY;
+            maxY = data.bounds.maxY;
+            
+            earliestTime = data.time.start;
+            latestTime = data.time.end;
+
             try {
-                const locResponse = await fetch(`/racer/map/api/locations/all/9094/`);
-                const locResult = await locResponse.json();
-                const locData = locResult.locations;
+                const lapRes = await fetch(`https://api.openf1.org/v1/laps?session_key=${SESSION_KEY}&driver_number=14`);
+                const laps = await lapRes.json();
+                if (laps && laps.length > 0) {
+                    let lap1Start = new Date(laps[0].date_start).getTime();
+                    // Advance the simulation clock to the exact moment Lap 1 starts
+                    if (lap1Start > earliestTime) earliestTime = lap1Start; 
+                }
+            } catch(e) { console.error("Could not fetch lap data to sync start time."); }
 
-                driversData = locData.drivers;
-                minX = locData.bounds.minX;
-                maxX = locData.bounds.maxX;
-                minY = locData.bounds.minY;
-                maxY = locData.bounds.maxY;
-                earliestTime = locData.time.start;
-                latestTime = locData.time.end;
+            // Initialize timeline pointers for all drivers
+            for (let d in driversData) {
+                pointers[d] = 0;
+            }
 
-                const driverResponse = await fetch(`/racer/map/api/drivers/9094/`);
-                const driverResult = await driverResponse.json();
-                driverMetadata = driverResult.drivers;
-                preloadCarImages(driverMetadata);
-
-                const intResponse = await fetch(`/racer/map/api/intervals/9094/`);
-                const intResult = await intResponse.json();
-                intervalData = intResult.intervals;
-
-                currentTime = earliestTime;
-            } catch (e) { console.error("Data fetch error:", e); }
+            currentTime = earliestTime;
         }
 
         async function fetchConditions() {
             try {
-                const sRes = await fetch('https://api.openf1.org/v1/sessions?session_key=9094');
+                const sRes = await fetch(`https://api.openf1.org/v1/sessions?session_key=${SESSION_KEY}`);
                 const sData = await sRes.json();
                 const sessionDisp = document.getElementById('sessionDisp');
                 if (sData.length > 0 && sessionDisp) sessionDisp.innerText = sData[0].session_name.toUpperCase();
 
-                const wRes = await fetch('https://api.openf1.org/v1/weather?session_key=9094');
+                const wRes = await fetch(`https://api.openf1.org/v1/weather?session_key=${SESSION_KEY}`);
                 weatherData = await wRes.json();
                 weatherData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-                const fRes = await fetch('https://api.openf1.org/v1/track_status?session_key=9094');
+                const fRes = await fetch(`https://api.openf1.org/v1/track_status?session_key=${SESSION_KEY}`);
                 flagData = await fRes.json();
                 flagData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
             } catch (e) { console.error("Could not fetch conditions:", e); }
+        }
+
+        async function fetchDriverMetadata() {
+            try{
+                const response = await fetch(`/racer/map/api/drivers/${SESSION_KEY}/`);
+                const data = await response.json();
+
+                if (data.drivers){
+                    driverMetadata = data.drivers;
+                }
+            } catch (e) {
+                console.error("Couldn't fetch the driver's metadata", e);
+            }
+        }
+
+        async function fetchIntervalData() {
+            try{
+                const response = await fetch(`/racer/map/api/intervals/${SESSION_KEY}/`);
+                const data = await response.json();
+
+                if (data.intervals){
+                    intervalData = data.intervals;
+
+                    for (let num in intervalData){
+                        intervalData[num].forEach(record=>{
+                            record.timestamp=new Date(record.t).getTime();
+                        });
+                        intervalData[num].sort((a,b)=> a.timestamp - b.timestamp);
+                    }
+                }
+            } catch (e) {
+                console.error("Couldn't fetch the interval data:", e);
+            }
         }
 
         function calculateScale() {
@@ -495,14 +537,32 @@
 
             for (let num in intervalData) {
                 const history = intervalData[num];
-                let record = null;
-                let gapVal = 80;
+                let p = intervalPointers[num] || 0;
 
-                for (let i = 0; i < history.length; i++) {
-                    if (history[i].t <= currentTime) {
-                        record = history[i];
-                        let rawGap = record.gap_to_leader !== undefined ? record.gap_to_leader : record.gap;
+                if (!isReversing) {
+                    while (p < history.length - 1 && history[p + 1].timestamp <= currentTime) { p++; }
+                } else {
+                    while (p > 0 && history[p].timestamp > currentTime) { p--; }
+                }
 
+                intervalPointers[num] = p;
+                let record = history[p];
+
+                if (record && record.timestamp <= currentTime) {
+                    
+                    const timeUntilSessionEnd = latestTime - record.timestamp;
+                    if (p === history.length - 1 && (currentTime - record.timestamp) > 180000 & timeUntilSessionEnd > 300000) {
+                        continue; 
+                    }
+
+                    let gapVal = null;
+                    let searchP = p;
+
+                    
+                    while (searchP >= 0 && gapVal === null) {
+                        let searchRecord = history[searchP];
+                        let rawGap = searchRecord.gap_to_leader !== undefined ? searchRecord.gap_to_leader : searchRecord.gap;
+                        
                         if (rawGap !== null && rawGap !== undefined) {
                             if (typeof rawGap === 'string' && rawGap.toUpperCase().includes('LAP')) {
                                 gapVal = (parseInt(rawGap) || 1) * 80;
@@ -513,12 +573,12 @@
                                 }
                             }
                         }
-                    } else {
-                        break;
+                        searchP--; 
                     }
                 }
 
-                if (record) {
+                    if (gapVal === null) gapVal = 100;
+
                     const meta = driverMetadata[num] || { last_name: `Driver ${num}`, team_colour: '444444', team_name: '' };
 
                     currentStandings.push({
@@ -532,7 +592,6 @@
 
             currentStandings.sort((a, b) => a.gap - b.gap);
 
-            // Draw Grid Lines
             intCtx.strokeStyle = "rgba(255, 255, 255, 0.15)";
             intCtx.lineWidth = 1;
             for (let s = 0; s <= 70; s += 5) {
@@ -551,7 +610,7 @@
             let maxGapFound = 0;
             let minIntervalFound = Infinity;
 
-            // Draw grid and cars
+            // --- DRAW CARS ---
             currentStandings.forEach((driver, index) => {
                 const x = (driver.gap / 120) * (intCanvas.width - 200) + 120;
                 const y = (index * 30) + 50;
@@ -562,7 +621,6 @@
                 intCtx.textAlign = "right";
                 intCtx.fillText(driver.meta.last_name.toUpperCase(), 110, y + 4);
 
-                // Draw Connector Line
                 intCtx.strokeStyle = teamColor;
                 intCtx.globalAlpha = 0.3;
                 intCtx.beginPath();
@@ -625,7 +683,7 @@
                 if (currentTime > latestTime) {
                     currentTime = latestTime;
                     isPaused = true;
-                    btn.innerText = "FINISHED";
+                    btn.innerText = "RESTART";
                 }
 
                 renderIntervals();
@@ -714,7 +772,7 @@
             if (Object.keys(driversData).length === 0) {
                 btn.disabled = true;
                 btn.innerText = "LOADING...";
-                await Promise.all([fetchRaceData(), fetchConditions()]);
+                await Promise.all([fetchRaceData(), fetchConditions(), fetchDriverMetadata(), fetchIntervalData()]); 
                 calculateScale();
                 generateLeaderboard();
                 btn.disabled = false;
@@ -724,9 +782,22 @@
                 lastFrameTime = performance.now();
                 requestAnimationFrame(render);
             } else {
-                isPaused = !isPaused;
-                btn.innerText = isPaused ? "RESUME" : "PAUSE";
-                if (!isPaused) lastFrameTime = performance.now();
+                if(btn.innerText=="RESTART"){
+                    currentTime = earliestTime
+                    for (let d in driverPointers) driverPointers[d] = 0;
+                    for (let i in intervalPointers) intervalPointers[i] = 0;
+                    pointers.weather = 0;
+                    pointers.flag = 0;
+                    isPaused = false;
+                    isReversing = false;
+                    playbackSpeed = 20; // Default back to normal speed
+                    btn.innerText = "PAUSE";
+                    lastFrameTime = performance.now();
+                } else {
+                    isPaused = !isPaused;
+                    btn.innerText = isPaused ? "RESUME" : "PAUSE";
+                    if (!isPaused) lastFrameTime = performance.now();
+                }
             }
         });
 
