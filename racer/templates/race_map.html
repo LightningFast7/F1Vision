@@ -375,6 +375,8 @@
         const btn = document.getElementById('startRace');
         let driverPointers = {};
         let intervalPointers = {};
+        const FLAG_STATUS_MAP = { "1": "CLEAR", "2": "YELLOW", "3": "NO OVERTAKING", "4": "SAFETY CAR", "5": "RED FLAG", "6": "VSC", "7": "VSC ENDING" };
+        const FLAG_COLOR_MAP = { "1": "#00ff00", "2": "yellow", "4": "orange", "5": "red", "6": "orange" };
 
         const urlParams = new URLSearchParams(window.location.search);
         const SESSION_KEY = urlParams.get('session') || '9094';
@@ -465,6 +467,7 @@
                 const sRes = await fetch(`https://api.openf1.org/v1/sessions?session_key=${SESSION_KEY}`);
                 const sData = await sRes.json();
                 const sessionDisp = document.getElementById('sessionDisp');
+                
                 if (sData.length > 0 && sessionDisp) sessionDisp.innerText = sData[0].session_name.toUpperCase();
 
                 const wRes = await fetch(`https://api.openf1.org/v1/weather?session_key=${SESSION_KEY}`);
@@ -473,7 +476,8 @@
 
                 const fRes = await fetch(`https://api.openf1.org/v1/track_status?session_key=${SESSION_KEY}`);
                 flagData = await fRes.json();
-                flagData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                flagData.forEach(f => f.timestamp = new Date(f.date).getTime());
+                flagData.sort((a, b) => a.timestamp - b.timestamp);
 
             } catch (e) { console.error("Could not fetch conditions:", e); }
         }
@@ -763,21 +767,38 @@
                 }
             }
 
-            if (flagData.length > 0) {
+            // 1. DEFAULT STATE: Always assume the track is CLEAR ("1")
+            let statusKey = "1"; 
+
+            // 2. ONLY check the timeline if the API actually gave us flag data
+            if (flagData && flagData.length > 0) {
                 let fp = pointers.flag || 0;
-                if (!isReversing) { while (fp < flagData.length - 1 && new Date(flagData[fp + 1].date).getTime() <= currentTime) fp++; }
-                else { while (fp > 0 && new Date(flagData[fp - 1].date).getTime() >= currentTime) fp--; }
-                pointers.flag = fp;
-
-                const f = flagData[fp];
-                const statusMap = { "1": "CLEAR", "2": "YELLOW", "3": "NO OVERTAKING", "4": "SAFETY CAR", "5": "RED FLAG", "6": "VSC", "7": "VSC ENDING" };
-                const colorMap = { "1": "#00ff00", "2": "yellow", "4": "orange", "5": "red", "6": "orange" };
-
-                const fDisplay = document.getElementById('flagDisp');
-                if (fDisplay) {
-                    fDisplay.innerText = statusMap[f.status] || f.status;
-                    fDisplay.style.color = colorMap[f.status] || "white";
+                
+                if (!isReversing) { 
+                    while (fp < flagData.length - 1 && flagData[fp + 1].timestamp <= currentTime) { fp++; }
+                } else { 
+                    while (fp > 0 && flagData[fp].timestamp > currentTime) { fp--; } 
                 }
+                
+                pointers.flag = fp;
+                const f = flagData[fp];
+                
+                // If the simulation time has reached a flag event, use the API's status
+                if (f && f.timestamp <= currentTime) {
+                    statusKey = String(f.status); 
+                }
+            }
+
+            // 3. Map the status code (whether default or from API) to your text and colors
+            const displayStatus = FLAG_STATUS_MAP[statusKey] || `STATUS ${statusKey}`;
+            const displayColor = FLAG_COLOR_MAP[statusKey] || "white";
+
+            const fDisplay = document.getElementById('flagDisp');
+            
+            // 4. Update the HTML (This will now run on frame 1 to replace the "--")
+            if (fDisplay && fDisplay.innerText !== displayStatus) {
+                fDisplay.innerText = displayStatus;
+                fDisplay.style.color = displayColor;
             }
 
             animationId = requestAnimationFrame(render);
