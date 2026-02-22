@@ -72,6 +72,9 @@
             flex-grow: 1;
             font-weight: bold;
             margin-left: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .points {
@@ -164,6 +167,21 @@
         button:disabled {
             background: #555;
         }
+
+        .stat-box {
+            background: var(--panel-bg);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            border: 1px solid #333;
+        }
+
+        #interval-container {
+            margin-top: 20px;
+            border-radius: 12px;
+            border: 1px solid #333;
+            overflow: hidden;
+        }
     </style>
 </head>
 
@@ -174,14 +192,18 @@
     </header>
 
     <div class="main-layout">
-        <section class="champpoints-list" id="leaderboard">
-            <div class="driver-row" id="row-14">
-                <span class="name">14 ALO</span>
-                <span id="pts-14" class="points">0 pts</span>
+        <section class="champpoints-list">
+            <div style="padding-bottom: 10px; border-bottom: 1px solid #333; margin-bottom: 10px">
+                <label for="sortOrder" style="font-size: 0.8em; opacity: 0.7; margin-bottom: 5px; display: block;">SORT
+                    BY:</label>
+                <select id="sortOrder"
+                    style="width: 100%;background: #2b2b35; color: white; border: 1px solid #444; padding: 5px; border-radius: 4px;">
+                    <option value="number">Driver Number</option>
+                    <option value="name">Last Name (A-Z)</option>
+                    <option value="team">Team Name</option>
+                </select>
             </div>
-            <div class="driver-row" id="row-1">
-                <span class="name">1 VER</span>
-                <span id="pts-1" class="points">0 pts</span>
+            <div id="leaderboard" style="display: flex; flex-direction: column; gap: 10px;">
             </div>
         </section>
 
@@ -225,9 +247,28 @@
         </section>
     </div>
 
+    <div class="stats-container" style="display: flex; gap: 20px; margin-bottom: 10px">
+        <div class="stat-box">Leader: <span id="leader-name">-</span></div>
+        <div class="stat-box">Largest Gap: <span id="biggest-gap" style="color: red;">+0.000s</span></div>
+        <div class="stat-box">Closest Battle: <span id="closest-battle" style="color: orange;">999.000s</span></div>
+    </div>
+
+    <div id="interval-container" style="position: relative; width:1000px; height: 400px; background: #1f1f27;">
+        <canvas id="intervalCanvas" width="1000" height="400"></canvas>
+    </div>
+
     <script>
+        // 1. GLOBAL SCOPE
+        let driverMetadata = {};
+        let driversData = {};
+        let intervalData = {};
+        let carImages = {};
+        let driverPointers = {}
+        let intervalPointers = {}
         const canvas = document.getElementById('trackCanvas');
         const ctx = canvas.getContext('2d');
+        const intCanvas = document.getElementById('intervalCanvas');
+        const intCtx = intCanvas.getContext('2d');
         const btn = document.getElementById('startRace');
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -252,8 +293,17 @@
         let isReversing = false;
         let hoveredRacer = null;
         let lastFrameTime = 0;
+        let animationId = null;
+        let lastKnownGaps = {};
 
-        // 1. Fetch & Group Data 
+        // Pre-load images
+        const teams = ['RedBullRacing', 'Mercedes', 'Ferrari', 'McLaren', 'Alpine', 'AstonMartin', 'Williams', 'AlfaRomeo', 'HAAS', 'Sauber', 'RacingBull'];
+        teams.forEach(team => {
+            const img = new Image();
+            img.src = `/static/images/${team}.png`;
+            carImages[team] = img;
+        });
+
         async function fetchRaceData() {
             const response = await fetch(`/racer/map/api/locations/all/${SESSION_KEY}/`);
             const result = await response.json();
@@ -304,7 +354,6 @@
             } catch (e) { console.error("Could not fetch conditions:", e); }
         }
 
-        // 2. Scaling
         function calculateScale() {
             const trackWidth = maxX - minX;
             const trackHeight = maxY - minY;
@@ -313,85 +362,211 @@
             offsetY = (canvas.height - (trackHeight * scale)) / 2;
 
             trackPath = new Path2D();
-            const outlineDriver = driversData['14'] || driversData[Object.keys(driversData)[0]];
-            outlineDriver.forEach((p, i) => {
+            const firstDriverNum = Object.keys(driversData)[0];
+            const outlinePoints = driversData[firstDriverNum];
+            outlinePoints.forEach((p, i) => {
                 const c = getCanvasCoords(p[0], p[1]);
                 if (i === 0) trackPath.moveTo(c.x, c.y); else trackPath.lineTo(c.x, c.y);
             });
         }
 
         function getCanvasCoords(rawX, rawY) {
-            return {
-                x: ((rawX - minX) * scale) + offsetX,
-                y: ((maxY - rawY) * scale) + offsetY
-            };
+            return { x: ((rawX - minX) * scale) + offsetX, y: ((maxY - rawY) * scale) + offsetY };
         }
 
-        // 3. Unified Animation Loop
-        function render(now) {
-            if (isPaused) {
-                lastFrameTime = now;
-                requestAnimationFrame(render);
-                return;
+        function renderIntervals() {
+            if (!intervalData || Object.keys(intervalData).length === 0) return;
+
+            intCtx.clearRect(0, 0, intCanvas.width, intCanvas.height);
+            let currentStandings = [];
+
+            for (let num in intervalData) {
+                const history = intervalData[num];
+                
+                // 1. Get the cached pointer for this driver (default to 0)
+                let p = intervalPointers[num] || 0;
+
+                // 2. Move pointer forward or backward based on playback direction
+                if (!isReversing) {
+                    // Move forward until the NEXT record is in the future
+                    while (p < history.length - 1 && history[p + 1].timestamp <= currentTime) { 
+                        p++; 
+                    }
+                } else {
+                    // Move backward until the CURRENT record is in the past
+                    while (p > 0 && history[p].timestamp > currentTime) { 
+                        p--; 
+                    }
+                }
+
+                // 3. Save the updated pointer for the next frame!
+                intervalPointers[num] = p;
+
+                // 4. Grab the record at our current pointer
+                let record = history[p];
+
+                // Proceed only if the record's time is actually at or before our current playback time
+                if (record && record.timestamp <= currentTime) {
+                    let gapVal = 80; 
+                    let rawGap = record.gap_to_leader !== undefined ? record.gap_to_leader : record.gap;
+                    
+                    if (rawGap !== null && rawGap !== undefined) {
+                        if (typeof rawGap === 'string' && rawGap.toUpperCase().includes('LAP')) {
+                            gapVal = (parseInt(rawGap) || 1) * 80; 
+                        } else {
+                            let parsed = parseFloat(rawGap);
+                            if (!isNaN(parsed)) {
+                                gapVal = parsed; 
+                            }
+                        }
+                    }
+
+                    const meta = driverMetadata[num] || { last_name: `Driver ${num}`, team_colour: '444444', team_name: '' };
+
+                    currentStandings.push({
+                        num: num,
+                        gap: gapVal,
+                        interval: parseFloat(record.interval) || 0,
+                        meta: meta
+                    });
+                }
             }
 
+            currentStandings.sort((a, b) => a.gap - b.gap);
+
+            // Draw Grid Lines
+            intCtx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+            intCtx.lineWidth = 1;
+            for (let s = 0; s <= 70; s += 5) {
+                let lx = (s / 70) * (intCanvas.width - 200) + 120;
+                intCtx.beginPath();
+                intCtx.moveTo(lx, 40);
+                intCtx.lineTo(lx, intCanvas.height - 20);
+                intCtx.stroke();
+
+                intCtx.fillStyle = "rgba(255, 255, 255, 0.6)";
+                intCtx.font = "10px 'Segoe UI'";
+                intCtx.textAlign = "center";
+                intCtx.fillText(`+${s}s`, lx, 30);
+            }
+
+            let maxGapFound = 0;
+            let minIntervalFound = Infinity;
+
+            // Draw grid and cars
+            currentStandings.forEach((driver, index) => {
+                const x = (driver.gap / 120) * (intCanvas.width - 200) + 120;
+                const y = (index * 18) + 50;
+                let teamColor = driver.meta.team_colour.startsWith('#') ? driver.meta.team_colour : `#${driver.meta.team_colour}`;
+
+                intCtx.fillStyle = (index === 0) ? "#e10600" : "white";
+                intCtx.font = (index === 0) ? "bold 11px Segoe UI" : "11px Segoe UI";
+                intCtx.textAlign = "right";
+                intCtx.fillText(driver.meta.last_name.toUpperCase(), 110, y + 4);
+
+                // Draw Connector Line
+                intCtx.strokeStyle = teamColor;
+                intCtx.globalAlpha = 0.3;
+                intCtx.beginPath();
+                intCtx.moveTo(120, y);
+                intCtx.lineTo(x, y);
+                intCtx.stroke();
+                intCtx.globalAlpha = 1.0;
+
+                // Draw Car or Dot
+                let teamKey = driver.meta.team_name.replace(/\s+/g, '');
+                if (teamKey === "McLaren") teamKey = "Mclaren";
+
+                const carImg = carImages[teamKey];
+                if (carImg && carImg.complete && carImg.naturalWidth > 0) {
+                    intCtx.drawImage(carImg, x - 15, y - 6, 30, 12);
+                } else {
+                    intCtx.fillStyle = teamColor;
+                    intCtx.beginPath();
+                    intCtx.arc(x, y, 5, 0, Math.PI * 2);
+                    intCtx.fill();
+                }
+
+                if (driver.gap > maxGapFound) maxGapFound = driver.gap;
+                if (driver.interval > 0 && driver.interval < minIntervalFound) minIntervalFound = driver.interval;
+            });
+
+            if (currentStandings.length > 0) {
+                document.getElementById('leader-name').innerText = currentStandings[0].meta.last_name.toUpperCase();
+                document.getElementById('biggest-gap').innerText = `+${maxGapFound.toFixed(3)}s`;
+                document.getElementById('closest-battle').innerText = (minIntervalFound === Infinity) ? "0.000s" : `${minIntervalFound.toFixed(3)}s`;
+            }
+        }
+
+        function render(now) {
             let deltaTime = now - lastFrameTime;
             lastFrameTime = now;
 
-            if (isReversing) {
-                currentTime -= deltaTime * playbackSpeed;
-            } else {
-                currentTime += deltaTime * playbackSpeed;
+            if (!isPaused) {
+                if (isReversing) currentTime -= deltaTime * playbackSpeed;
+                else currentTime += deltaTime * playbackSpeed;
+
+                if (currentTime < earliestTime) currentTime = earliestTime;
+                if (currentTime > latestTime) {
+                    currentTime = latestTime;
+                    isPaused = true;
+                    btn.innerText = "FINISHED";
+                }
+
+                // If this fails, the track below won't draw. We fixed it above!
+                renderIntervals();
             }
 
-            if (currentTime < earliestTime) currentTime = earliestTime;
-            if (currentTime > latestTime) {
-                isPaused = true;
-                btn.innerText = "FINISHED";
-            }
-
+            // Make the track visible with white (#FFFFFF)
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.strokeStyle = '#444';
+            ctx.strokeStyle = '#FFFFFF';
             ctx.lineWidth = 2;
             ctx.stroke(trackPath);
 
-            // DRIVER ANIMATION
             for (let driver in driversData) {
-                let pts = driversData[driver];
+                
+                let pts = driversData[driver]
+                let p = driverPointers[driver] || 0; 
 
-                let p = pointers[driver] || 0; 
                 if (!isReversing) {
-                    while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) p++;
+                    while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
                 } else {
-                    while (p > 0 && pts[p - 1][2] >= currentTime) p--;
+                    while (p > 0 && pts[p][2] > currentTime) { p--; }
                 }
-                pointers[driver] = p; // Save the location for the next frame
+                
+                driverPointers[driver] = p; 
 
                 let currentPoint = pts[p];
+                
                 if (currentPoint) {
+                    const meta = driverMetadata[driver] || { last_name: 'Driver', team_colour: '444444' };
+                    let teamColor = meta.team_colour.startsWith('#') ? meta.team_colour : "#" + meta.team_colour;
                     const coords = getCanvasCoords(currentPoint[0], currentPoint[1]);
-                    const isHovered = hoveredRacer === driver;
+                    const isHovered = (hoveredRacer === driver);
 
-                    ctx.fillStyle = isHovered ? '#ff0000' : '#00ff00';
-                    ctx.shadowBlur = isHovered ? 15 : 0;
-                    ctx.shadowColor = "red";
-
+                    ctx.fillStyle = isHovered ? '#e10600' : teamColor;
                     ctx.beginPath();
                     ctx.arc(coords.x, coords.y, isHovered ? 8 : 4, 0, Math.PI * 2);
                     ctx.fill();
-                    ctx.shadowBlur = 0;
 
-                    ctx.fillStyle = "white";
-                    ctx.font = isHovered ? "bold 14px Arial" : "11px Arial";
-                    ctx.fillText(driver, coords.x + 8, coords.y - 8);
-
-                    const ptsDisplay = document.getElementById(`pts-${driver}`);
-                    if (ptsDisplay) {
-                        const progress = (currentTime - earliestTime) / (latestTime - earliestTime);
-                        ptsDisplay.innerText = Math.floor(progress * 25) + " pts";
+                    if (isHovered) {
+                        ctx.fillStyle = "white";
+                        ctx.font = "bold 12px Segoe UI";
+                        ctx.fillText(meta.last_name, coords.x + 10, coords.y - 10);
                     }
                 }
             }
+
+            // UPDATE UI CLOCK
+            if (currentTime) {
+                const timeDisplay = document.getElementById('timeDisplay');
+                const date = new Date(currentTime);
+                timeDisplay.innerText = date.getUTCMinutes().toString().padStart(2, '0') + ":" +
+                    date.getUTCSeconds().toString().padStart(2, '0');
+            }
+
+            //animationId = requestAnimationFrame(render);
+        
 
             // Sync Environment Conditions
             if (weatherData.length > 0) {
@@ -441,35 +616,58 @@
         // 4. Playback Listeners 
         btn.addEventListener('click', async () => {
             if (Object.keys(driversData).length === 0) {
+                btn.disabled = true;
                 btn.innerText = "LOADING...";
                 await Promise.all([fetchRaceData(), fetchConditions()]); 
                 calculateScale();
+                generateLeaderboard();
+                btn.disabled = false;
+
+                isPaused = false;
+                btn.innerText = "PAUSE";
                 lastFrameTime = performance.now();
                 requestAnimationFrame(render);
+            } else {
+                isPaused = !isPaused;
+                btn.innerText = isPaused ? "RESUME" : "PAUSE";
+                if (!isPaused) lastFrameTime = performance.now();
             }
-            isPaused = !isPaused;
-            btn.innerText = isPaused ? "RESUME" : "PAUSE";
         });
 
-        // Set speed multipliers (Note: At 60 frames per second, 100x speed processes about 6 seconds of real-time data per second)
-        document.getElementById('fastForward').onclick = () => { playbackSpeed = 100; isReversing = false; isPaused = false; };
-        document.getElementById('normalSpeed').onclick = () => { playbackSpeed = 20; isReversing = false; isPaused = false; };
-        document.getElementById('slowMotion').onclick = () => { playbackSpeed = 5; isReversing = false; isPaused = false; };
-        document.getElementById('prevFrame').onclick = () => { isReversing = true; isPaused = false; };
+        // Keeping your original sorting and controls
+        function generateLeaderboard() {
+            const leaderboard = document.getElementById('leaderboard');
+            const sortValue = document.getElementById('sortOrder').value;
+            leaderboard.innerHTML = '';
+            let driverKeys = Object.keys(driversData);
 
-        // 5. Hover Logic
-        document.querySelectorAll('.driver-row').forEach(row => {
-            const id = row.id.split('-')[1]; // Get '14' from 'row-14'
-            row.addEventListener('mouseenter', () => {
-                hoveredRacer = id;
-                row.classList.add('highlighted');
+            driverKeys.sort((a, b) => {
+                const metaA = driverMetadata[a] || { last_name: 'zzz', team_name: 'zzz' };
+                const metaB = driverMetadata[b] || { last_name: 'zzz', team_name: 'zzz' };
+                if (sortValue === 'name') return metaA.last_name.localeCompare(metaB.last_name);
+                if (sortValue === 'team') return metaA.team_name.localeCompare(metaB.team_name);
+                return parseInt(a) - parseInt(b);
             });
-            row.addEventListener('mouseleave', () => {
-                hoveredRacer = null;
-                row.classList.remove('highlighted');
-            });
-        });
 
+            driverKeys.forEach(num => {
+                const meta = driverMetadata[num] || { last_name: 'Driver', team_colour: '444444', team_name: 'F1 Team' };
+                const row = document.createElement('div');
+                row.className = 'driver-row';
+                row.id = `row-${num}`;
+                const color = meta.team_colour.startsWith('#') ? meta.team_colour : `#${meta.team_colour}`;
+                row.style.borderLeft = `6px solid ${color}`;
+                row.innerHTML = `<span class="name">${meta.last_name.toUpperCase()} <span style="opacity: 0.6; font-size: 0.85em;">- ${meta.team_name}</span></span><span class="points" style="font-weight: bold; color: ${color}">${num}</span>`;
+                row.addEventListener('mouseenter', () => { hoveredRacer = num; row.classList.add('highlighted'); });
+                row.addEventListener('mouseleave', () => { hoveredRacer = null; row.classList.remove('highlighted'); });
+                leaderboard.appendChild(row);
+            });
+        }
+
+        document.getElementById('sortOrder').addEventListener('change', generateLeaderboard);
+        document.getElementById('fastForward').onclick = () => { playbackSpeed = 100; isReversing = false; isPaused = false; btn.innerText = "PAUSE"; lastFrameTime = performance.now(); };
+        document.getElementById('normalSpeed').onclick = () => { playbackSpeed = 20; isReversing = false; isPaused = false; btn.innerText = "PAUSE"; lastFrameTime = performance.now(); };
+        document.getElementById('slowMotion').onclick = () => { playbackSpeed = 5; isReversing = false; isPaused = false; btn.innerText = "PAUSE"; lastFrameTime = performance.now(); };
+        document.getElementById('prevFrame').onclick = () => { isReversing = true; isPaused = false; btn.innerText = "PAUSE"; lastFrameTime = performance.now(); };
     </script>
 </body>
 
