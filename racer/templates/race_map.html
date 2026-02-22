@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 
@@ -253,11 +254,13 @@
         <div class="stat-box">Closest Battle: <span id="closest-battle" style="color: orange;">999.000s</span></div>
     </div>
 
-    <div id="interval-container" style="position: relative; width:1000px; height: 400px; background: #1f1f27;">
-        <canvas id="intervalCanvas" width="1000" height="400"></canvas>
+    <div id="interval-container" style="position: relative; width:1000px; height: 700px; background: #1f1f27;">
+        <canvas id="intervalCanvas" width="1000" height="700"></canvas>
     </div>
 
     <script>
+        const STATIC_IMAGES = "{% static 'images/' %}";
+
         // 1. GLOBAL SCOPE
         let driverMetadata = {};
         let driversData = {};
@@ -289,13 +292,35 @@
         let animationId = null;
         let lastKnownGaps = {};
 
-        // Pre-load images
-        const teams = ['RedBullRacing', 'Mercedes', 'Ferrari', 'McLaren', 'Alpine', 'AstonMartin', 'Williams', 'AlfaRomeo', 'HAAS', 'Sauber', 'RacingBull'];
-        teams.forEach(team => {
-            const img = new Image();
-            img.src = `/static/images/${team}.png`;
-            carImages[team] = img;
-        });
+
+        const TEAM_NAME_EXCEPTIONS = {
+            'HaasF1Team':  'HAAS',
+            'AlphaTauri':  'RacingBull',   // rebranded to Visa Cash App RB
+            'McLaren':     'Mclaren',      // filename uses lowercase 'l'
+            'AlfaRomeo':   'Sauber',       // rebranded; use Sauber livery image
+        };
+
+        function teamNameToKey(teamName) {
+            const stripped = (teamName || '').replace(/\s+/g, '');
+            return TEAM_NAME_EXCEPTIONS[stripped] || stripped;
+        }
+
+        // Called after driverMetadata is loaded — dynamically preloads only the
+        // teams actually present in this race, so no hardcoded list is needed.
+        function preloadCarImages(driverMetaMap) {
+            const seen = new Set();
+            for (const num in driverMetaMap) {
+                const key = teamNameToKey(driverMetaMap[num].team_name);
+                if (key && !seen.has(key)) {
+                    seen.add(key);
+                    if (!carImages[key]) {
+                        const img = new Image();
+                        img.src = `${STATIC_IMAGES}cropped/${key}.png`;
+                        carImages[key] = img;
+                    }
+                }
+            }
+        }
 
         async function fetchRaceData() {
             try {
@@ -314,6 +339,7 @@
                 const driverResponse = await fetch(`/racer/map/api/drivers/9094/`);
                 const driverResult = await driverResponse.json();
                 driverMetadata = driverResult.drivers;
+                preloadCarImages(driverMetadata);
 
                 const intResponse = await fetch(`/racer/map/api/intervals/9094/`);
                 const intResult = await intResponse.json();
@@ -398,7 +424,7 @@
                     currentStandings.push({
                         num: num,
                         gap: gapVal, // Uses the safely tracked gapVal from the loop
-                        interval: parseFloat(record.interval) || 0,
+                        interval: parseFloat(record.int ?? record.interval) || 0,
                         meta: meta
                     });
                 }
@@ -428,7 +454,7 @@
             // Draw grid and cars
             currentStandings.forEach((driver, index) => {
                 const x = (driver.gap / 120) * (intCanvas.width - 200) + 120;
-                const y = (index * 18) + 50;
+                const y = (index * 30) + 50;
                 let teamColor = driver.meta.team_colour.startsWith('#') ? driver.meta.team_colour : `#${driver.meta.team_colour}`;
 
                 intCtx.fillStyle = (index === 0) ? "#e10600" : "white";
@@ -445,17 +471,16 @@
                 intCtx.stroke();
                 intCtx.globalAlpha = 1.0;
 
-                // Draw Car or Dot
-                let teamKey = driver.meta.team_name.replace(/\s+/g, '');
-                if (teamKey === "McLaren") teamKey = "Mclaren";
+                // Draw Car or Dot — use the shared normalization function
+                let teamKey = teamNameToKey(driver.meta.team_name);
 
                 const carImg = carImages[teamKey];
                 if (carImg && carImg.complete && carImg.naturalWidth > 0) {
-                    intCtx.drawImage(carImg, x - 15, y - 6, 30, 12);
+                    intCtx.drawImage(carImg, x - 45, y - 10, 90, 20);
                 } else {
                     intCtx.fillStyle = teamColor;
                     intCtx.beginPath();
-                    intCtx.arc(x, y, 5, 0, Math.PI * 2);
+                    intCtx.arc(x, y, 8, 0, Math.PI * 2);
                     intCtx.fill();
                 }
 
@@ -523,33 +548,25 @@
 
             // UPDATE UI CLOCK
             if (currentTime) {
-                const timeDisplay = document.getElementById('timeDisplay');
-                const date = new Date(currentTime);
-                timeDisplay.innerText = date.getUTCMinutes().toString().padStart(2, '0') + ":" +
-                    date.getUTCSeconds().toString().padStart(2, '0');
+                document.getElementById('timeDisplay').innerText = new Date(currentTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             }
-
-            animationId = requestAnimationFrame(render);
-        }
 
             // Sync Environment Conditions
             if (weatherData.length > 0) {
                 let wp = pointers.weather || 0;
-                if (!isReversing) { while (wp < weatherData.length - 1 && new Date(weatherData[wp + 1].date).getTime() <= currentTime) wp++; } 
+                if (!isReversing) { while (wp < weatherData.length - 1 && new Date(weatherData[wp + 1].date).getTime() <= currentTime) wp++; }
                 else { while (wp > 0 && new Date(weatherData[wp - 1].date).getTime() >= currentTime) wp--; }
                 pointers.weather = wp;
-                
+
                 const w = weatherData[wp];
-                
                 const speedEl = document.getElementById('windSpeed');
                 const dirEl = document.getElementById('windDir');
                 const arrowEl = document.getElementById('windArrow');
                 const rainEl = document.getElementById('rainDisp');
-                
+
                 if (speedEl) speedEl.innerText = w.wind_speed ?? "--";
                 if (dirEl) dirEl.innerText = w.wind_direction ?? "--";
                 if (rainEl) rainEl.innerText = (w.rainfall == 1) ? 'YES' : 'NO';
-                
                 if (arrowEl && w.wind_direction != null) {
                     arrowEl.style.transform = `rotate(${w.wind_direction}deg)`;
                 }
@@ -557,14 +574,14 @@
 
             if (flagData.length > 0) {
                 let fp = pointers.flag || 0;
-                if (!isReversing) { while (fp < flagData.length - 1 && new Date(flagData[fp + 1].date).getTime() <= currentTime) fp++; } 
+                if (!isReversing) { while (fp < flagData.length - 1 && new Date(flagData[fp + 1].date).getTime() <= currentTime) fp++; }
                 else { while (fp > 0 && new Date(flagData[fp - 1].date).getTime() >= currentTime) fp--; }
                 pointers.flag = fp;
 
                 const f = flagData[fp];
                 const statusMap = { "1": "CLEAR", "2": "YELLOW", "3": "NO OVERTAKING", "4": "SAFETY CAR", "5": "RED FLAG", "6": "VSC", "7": "VSC ENDING" };
                 const colorMap = { "1": "#00ff00", "2": "yellow", "4": "orange", "5": "red", "6": "orange" };
-                
+
                 const fDisplay = document.getElementById('flagDisp');
                 if (fDisplay) {
                     fDisplay.innerText = statusMap[f.status] || f.status;
@@ -572,9 +589,7 @@
                 }
             }
 
-            document.getElementById('timeDisplay').innerText = new Date(currentTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            
-            requestAnimationFrame(render);
+            animationId = requestAnimationFrame(render);
         }
 
         // 4. Playback Listeners 
