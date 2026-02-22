@@ -51,3 +51,24 @@ def get_driver_names(request, session_key):
     except Exception as e:
         print(f"Error in get_driver_names: {e}")
         return JsonResponse({'error': str(e)}, status=404)
+
+def get_intervals(request, session_key):
+    filename = f"intervals_{session_key}.json"
+    filepath = os.path.join(settings.BASE_DIR, 'race_data', filename)
+    try:
+        with open(filepath, 'r') as file:
+            data = json.load(file)
+        
+        interval_map = {}
+        for entry in data:
+            num = str(entry['driver_number'])
+            if num not in interval_map:
+                interval_map[num] = []
+            interval_map[num].append({
+                't':entry['date'],
+                'gap': entry['gap_to_leader'],
+                'int': entry['interval']
+            })
+        return JsonResponse({'intervals': interval_map})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=404)

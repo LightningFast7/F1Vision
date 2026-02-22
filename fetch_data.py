@@ -66,4 +66,31 @@ def download_optimized_locations(session_key):
         
     print(f"\nSUCCESS: Optimized data saved to {filepath}!")
 
+def download_intervals(session_key):
+    print(f"Fetching intervals for Session {session_key}...")
+    url = f"https://api.openf1.org/v1/intervals?session_key={session_key}"
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        raw_data = response.json()
+        
+        # We process this to match the ts_ms format your JS expects
+        processed_intervals = []
+        for entry in raw_data:
+            dt = datetime.fromisoformat(entry['date'].replace('Z', '+00:00'))
+            ts_ms = int(dt.timestamp() * 1000)
+            
+            processed_intervals.append({
+                "driver_number": entry['driver_number'],
+                "date": ts_ms, # Using millisecond timestamp
+                "gap_to_leader": entry['gap_to_leader'],
+                "interval": entry['interval']
+            })
+            
+        filepath = os.path.join('race_data', f"intervals_{session_key}.json")
+        with open(filepath, 'w') as file:
+            json.dump(processed_intervals, file)
+        print(f"SUCCESS: Interval data saved to {filepath}!")
+
 download_optimized_locations(9094)
+download_intervals(9094)
