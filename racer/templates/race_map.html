@@ -79,7 +79,6 @@
             opacity: 0.8;
         }
 
-        /* Map Styling */
         #map-container {
             position: relative;
             width: 800px;
@@ -87,6 +86,53 @@
             background-color: #2b2b35;
             border-radius: 12px;
             overflow: hidden;
+        }
+
+        .conditions-panel {
+            background: var(--panel-bg);
+            padding: 15px 30px;
+            border-radius: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        .condition-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            background: #2b2b35;
+            padding: 10px 15px;
+            border-radius: 8px;
+            min-width: 100px;
+            height: 60px;
+        }
+
+        .condition-value {
+            font-weight: bold;
+            font-family: monospace;
+            font-size: 16px;
+        }
+
+        .weather-panel {
+            background: #2b2b35;
+            padding: 10px 15px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 5px;
+            min-width: 150px;
+            height: 60px;
+        }
+
+        .wind-arrow {
+            display: inline-block;
+            transition: transform 0.3s ease;
         }
 
         canvas {
@@ -147,11 +193,35 @@
             <div class="controls">
                 <button id="startRace">START RACE</button>
                 <button id="prevFrame">REVERSE</button>
-                <button id="slowMotion">0.5x</button>
-                <button id="normalSpeed">1x</button>
-                <button id="fastForward">2x</button>
-                <div id="telemetry">TIME: <span id="timeDisplay">00:00</span></div>
+                <button id="slowMotion">5x Speed</button>
+                <button id="normalSpeed">20x Speed</button>
+                <button id="fastForward">100x Speed</button>
+                <div id="telemetry">LOCAL TIME: <span id="timeDisplay">00:00:00</span></div>
             </div>
+
+            <div class="conditions-panel">
+                <div class="condition-item">
+                    <span>SESSION</span>
+                    <span class="condition-value" id="sessionDisp">--</span>
+                </div>
+                
+                <div class="condition-item">
+                    <span>FLAG</span>
+                    <span class="condition-value" id="flagDisp" style="color: #00ff00;">--</span>
+                </div>
+                
+                <div class="condition-item">
+                    <span>RAINFALL</span>
+                    <span class="condition-value" id="rainDisp">--</span>
+                </div>
+
+                <div class="weather-panel">
+                    <div style="color: var(--f1-red); font-weight: bold; font-family: 'Segoe UI', sans-serif;">WIND CONDITIONS</div>
+                    <div class="weather-item">Speed: <span class="condition-value" id="windSpeed">--</span> m/s</div>
+                    <div class="weather-item">Dir: <span class="condition-value" id="windDir">--</span>° <span class="wind-arrow" id="windArrow">⬆</span></div>
+                </div>
+            </div>
+            
         </section>
     </div>
 
@@ -168,16 +238,19 @@
         let scale = 1, offsetX = 0, offsetY = 0;
         let trackPath = new Path2D();
 
-        // State Management (Your Playback System)
+        let weatherData = [];
+        let flagData = [];
+        let pointers = {weather: 0, flag: 0};
+
+        // State Management 
         let currentTime;
-        let playbackSpeed = 20; // Default speed multiplier
+        let playbackSpeed = 20; 
         let isPaused = true;
         let isReversing = false;
         let hoveredRacer = null;
         let lastFrameTime = 0;
-        let pointers = {};
 
-        // 1. Fetch & Group Data (Partner's Logic)
+        // 1. Fetch & Group Data 
         async function fetchRaceData() {
             const response = await fetch('/racer/map/api/locations/all/9094/');
             const result = await response.json();
@@ -188,17 +261,47 @@
             maxX = data.bounds.maxX;
             minY = data.bounds.minY;
             maxY = data.bounds.maxY;
+            
             earliestTime = data.time.start;
             latestTime = data.time.end;
 
+            try {
+                const lapRes = await fetch('https://api.openf1.org/v1/laps?session_key=9094&driver_number=14');
+                const laps = await lapRes.json();
+                if (laps && laps.length > 0) {
+                    let lap1Start = new Date(laps[0].date_start).getTime();
+                    // Advance the simulation clock to the exact moment Lap 1 starts
+                    if (lap1Start > earliestTime) earliestTime = lap1Start; 
+                }
+            } catch(e) { console.error("Could not fetch lap data to sync start time."); }
+
+            // Initialize timeline pointers for all drivers
             for (let d in driversData) {
                 pointers[d] = 0;
             }
 
             currentTime = earliestTime;
         }
+        
+        async function fetchConditions() {
+            try {
+                const sRes = await fetch('https://api.openf1.org/v1/sessions?session_key=9094');
+                const sData = await sRes.json();
+                const sessionDisp = document.getElementById('sessionDisp');
+                if(sData.length > 0 && sessionDisp) sessionDisp.innerText = sData[0].session_name.toUpperCase();
 
-        // 2. Scaling (Partner's Logic)
+                const wRes = await fetch('https://api.openf1.org/v1/weather?session_key=9094');
+                weatherData = await wRes.json();
+                weatherData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+                const fRes = await fetch('https://api.openf1.org/v1/track_status?session_key=9094');
+                flagData = await fRes.json();
+                flagData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                
+            } catch (e) { console.error("Could not fetch conditions:", e); }
+        }
+
+        // 2. Scaling
         function calculateScale() {
             const trackWidth = maxX - minX;
             const trackHeight = maxY - minY;
@@ -206,7 +309,6 @@
             offsetX = (canvas.width - (trackWidth * scale)) / 2;
             offsetY = (canvas.height - (trackHeight * scale)) / 2;
 
-            // Pre-draw track outline
             trackPath = new Path2D();
             const outlineDriver = driversData['14'] || driversData[Object.keys(driversData)[0]];
             outlineDriver.forEach((p, i) => {
@@ -246,23 +348,24 @@
             }
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
             ctx.strokeStyle = '#444';
             ctx.lineWidth = 2;
             ctx.stroke(trackPath);
 
+            // DRIVER ANIMATION
             for (let driver in driversData) {
                 let pts = driversData[driver];
 
-                // pts[p] is now [x, y, time]
-                let p = 0;
-                while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) {
-                    p++;
+                let p = pointers[driver] || 0; 
+                if (!isReversing) {
+                    while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) p++;
+                } else {
+                    while (p > 0 && pts[p - 1][2] >= currentTime) p--;
                 }
+                pointers[driver] = p; // Save the location for the next frame
 
                 let currentPoint = pts[p];
                 if (currentPoint) {
-                    // Index 0 is X, Index 1 is Y
                     const coords = getCanvasCoords(currentPoint[0], currentPoint[1]);
                     const isHovered = hoveredRacer === driver;
 
@@ -287,15 +390,56 @@
                 }
             }
 
-            document.getElementById('timeDisplay').innerText = new Date(currentTime).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' });
+            // Sync Environment Conditions
+            if (weatherData.length > 0) {
+                let wp = pointers.weather || 0;
+                if (!isReversing) { while (wp < weatherData.length - 1 && new Date(weatherData[wp + 1].date).getTime() <= currentTime) wp++; } 
+                else { while (wp > 0 && new Date(weatherData[wp - 1].date).getTime() >= currentTime) wp--; }
+                pointers.weather = wp;
+                
+                const w = weatherData[wp];
+                
+                const speedEl = document.getElementById('windSpeed');
+                const dirEl = document.getElementById('windDir');
+                const arrowEl = document.getElementById('windArrow');
+                const rainEl = document.getElementById('rainDisp');
+                
+                if (speedEl) speedEl.innerText = w.wind_speed ?? "--";
+                if (dirEl) dirEl.innerText = w.wind_direction ?? "--";
+                if (rainEl) rainEl.innerText = (w.rainfall == 1) ? 'YES' : 'NO';
+                
+                if (arrowEl && w.wind_direction != null) {
+                    arrowEl.style.transform = `rotate(${w.wind_direction}deg)`;
+                }
+            }
+
+            if (flagData.length > 0) {
+                let fp = pointers.flag || 0;
+                if (!isReversing) { while (fp < flagData.length - 1 && new Date(flagData[fp + 1].date).getTime() <= currentTime) fp++; } 
+                else { while (fp > 0 && new Date(flagData[fp - 1].date).getTime() >= currentTime) fp--; }
+                pointers.flag = fp;
+
+                const f = flagData[fp];
+                const statusMap = { "1": "CLEAR", "2": "YELLOW", "3": "NO OVERTAKING", "4": "SAFETY CAR", "5": "RED FLAG", "6": "VSC", "7": "VSC ENDING" };
+                const colorMap = { "1": "#00ff00", "2": "yellow", "4": "orange", "5": "red", "6": "orange" };
+                
+                const fDisplay = document.getElementById('flagDisp');
+                if (fDisplay) {
+                    fDisplay.innerText = statusMap[f.status] || f.status;
+                    fDisplay.style.color = colorMap[f.status] || "white";
+                }
+            }
+
+            document.getElementById('timeDisplay').innerText = new Date(currentTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            
             requestAnimationFrame(render);
         }
 
-        // 4. Playback Listeners (Your logic)
+        // 4. Playback Listeners 
         btn.addEventListener('click', async () => {
             if (Object.keys(driversData).length === 0) {
                 btn.innerText = "LOADING...";
-                await fetchRaceData();
+                await Promise.all([fetchRaceData(), fetchConditions()]); 
                 calculateScale();
                 lastFrameTime = performance.now();
                 requestAnimationFrame(render);
@@ -304,12 +448,13 @@
             btn.innerText = isPaused ? "RESUME" : "PAUSE";
         });
 
+        // Set speed multipliers (Note: At 60 frames per second, 100x speed processes about 6 seconds of real-time data per second)
         document.getElementById('fastForward').onclick = () => { playbackSpeed = 100; isReversing = false; isPaused = false; };
         document.getElementById('normalSpeed').onclick = () => { playbackSpeed = 20; isReversing = false; isPaused = false; };
         document.getElementById('slowMotion').onclick = () => { playbackSpeed = 5; isReversing = false; isPaused = false; };
         document.getElementById('prevFrame').onclick = () => { isReversing = true; isPaused = false; };
 
-        // 5. Hover Logic (Your logic)
+        // 5. Hover Logic
         document.querySelectorAll('.driver-row').forEach(row => {
             const id = row.id.split('-')[1]; // Get '14' from 'row-14'
             row.addEventListener('mouseenter', () => {
