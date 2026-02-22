@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 
@@ -101,7 +102,7 @@
             margin-top: 15px;
             font-size: 14px;
         }
-        
+
         .condition-item {
             display: flex;
             flex-direction: column;
@@ -182,10 +183,103 @@
             border: 1px solid #333;
             overflow: hidden;
         }
+
+        #back-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: #2b2b35;
+            color: white;
+            border: 1px solid #444;
+            padding: 10px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 999;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        #back-btn:hover {
+            background: #3a3a48;
+            border-color: var(--f1-red);
+        }
+
+        /* Modified Modal Styling for a "Card" look */
+        #driver-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            /* Darker overlay */
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: var(--panel-bg);
+            padding: 30px;
+            border-radius: 15px;
+            border-bottom: 5px solid var(--f1-red);
+            /* F1 style accent */
+            width: 400px;
+            /* Fixed width */
+            max-height: 500px;
+            /* Prevents it from being too tall */
+            text-align: center;
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .modal-headshot {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: #2b2b35;
+            border: 3px solid #444;
+            object-fit: cover;
+            /* Ensures headshot isn't stretched */
+            margin-top: -10px;
+        }
+
+        .modal-car {
+            width: 100%;
+            max-width: 320px;
+            height: auto;
+            margin-top: 20px;
+            filter: drop-shadow(0 5px 15px rgba(0, 0, 0, 0.3));
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 28px;
+            color: #888;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .close-modal:hover {
+            color: white;
+        }
     </style>
 </head>
 
 <body>
+
+    <a id="back-btn" href="/">&#8592; Main Menu</a>
 
     <header>
         <h1>Live Replay</h1>
@@ -204,6 +298,15 @@
                 </select>
             </div>
             <div id="leaderboard" style="display: flex; flex-direction: column; gap: 10px;">
+            </div>
+            <div id="driver-modal">
+                <div class="modal-content">
+                    <span class="close-modal" onclick="closeModal()">&times;</span>
+                    <img id="modal-headshot" class="modal-headshot" src="" alt="Driver Headshot">
+                    <h2 id="modal-name" style="margin: 15px 0 5px 0;"></h2>
+                    <p id="modal-team" style="opacity: 0.7; margin-bottom: 20px;"></p>
+                    <img id="modal-car" class="modal-car" src="" alt="Team Car">
+                </div>
             </div>
         </section>
 
@@ -226,24 +329,26 @@
                     <span>SESSION</span>
                     <span class="condition-value" id="sessionDisp">--</span>
                 </div>
-                
+
                 <div class="condition-item">
                     <span>FLAG</span>
                     <span class="condition-value" id="flagDisp" style="color: #00ff00;">--</span>
                 </div>
-                
+
                 <div class="condition-item">
                     <span>RAINFALL</span>
                     <span class="condition-value" id="rainDisp">--</span>
                 </div>
 
                 <div class="weather-panel">
-                    <div style="color: var(--f1-red); font-weight: bold; font-family: 'Segoe UI', sans-serif;">WIND CONDITIONS</div>
+                    <div style="color: var(--f1-red); font-weight: bold; font-family: 'Segoe UI', sans-serif;">WIND
+                        CONDITIONS</div>
                     <div class="weather-item">Speed: <span class="condition-value" id="windSpeed">--</span> m/s</div>
-                    <div class="weather-item">Dir: <span class="condition-value" id="windDir">--</span>° <span class="wind-arrow" id="windArrow">⬆</span></div>
+                    <div class="weather-item">Dir: <span class="condition-value" id="windDir">--</span>° <span
+                            class="wind-arrow" id="windArrow">⬆</span></div>
                 </div>
             </div>
-            
+
         </section>
     </div>
 
@@ -253,18 +358,16 @@
         <div class="stat-box">Closest Battle: <span id="closest-battle" style="color: orange;">999.000s</span></div>
     </div>
 
-    <div id="interval-container" style="position: relative; width:1000px; height: 400px; background: #1f1f27;">
-        <canvas id="intervalCanvas" width="1000" height="400"></canvas>
+    <div id="interval-container" style="position: relative; width:1000px; height: 700px; background: #1f1f27;">
+        <canvas id="intervalCanvas" width="1000" height="700"></canvas>
     </div>
 
     <script>
-        // 1. GLOBAL SCOPE
+        const STATIC_IMAGES = "{% static 'images/' %}";
         let driverMetadata = {};
         let driversData = {};
         let intervalData = {};
         let carImages = {};
-        let driverPointers = {}
-        let intervalPointers = {}
         const canvas = document.getElementById('trackCanvas');
         const ctx = canvas.getContext('2d');
         const intCanvas = document.getElementById('intervalCanvas');
@@ -283,11 +386,11 @@
 
         let weatherData = [];
         let flagData = [];
-        let pointers = {weather: 0, flag: 0};
+        let pointers = { weather: 0, flag: 0 };
 
         // State Management 
         let currentTime;
-        let playbackSpeed = 20; 
+        let playbackSpeed = 20;
         let isPaused = true;
         let isReversing = false;
         let hoveredRacer = null;
@@ -295,13 +398,33 @@
         let animationId = null;
         let lastKnownGaps = {};
 
-        // Pre-load images
-        const teams = ['RedBullRacing', 'Mercedes', 'Ferrari', 'McLaren', 'Alpine', 'AstonMartin', 'Williams', 'AlfaRomeo', 'HAAS', 'Sauber', 'RacingBull'];
-        teams.forEach(team => {
-            const img = new Image();
-            img.src = `/static/images/${team}.png`;
-            carImages[team] = img;
-        });
+        // Maps a raw team_name string (from the API) to its image filename key.
+        const TEAM_NAME_EXCEPTIONS = {
+            'HaasF1Team': 'HAAS',
+            'AlphaTauri': 'RacingBull',
+            'McLaren': 'Mclaren',
+            'AlfaRomeo': 'Sauber',
+        };
+
+        function teamNameToKey(teamName) {
+            const stripped = (teamName || '').replace(/\s+/g, '');
+            return TEAM_NAME_EXCEPTIONS[stripped] || stripped;
+        }
+
+        function preloadCarImages(driverMetaMap) {
+            const seen = new Set();
+            for (const num in driverMetaMap) {
+                const key = teamNameToKey(driverMetaMap[num].team_name);
+                if (key && !seen.has(key)) {
+                    seen.add(key);
+                    if (!carImages[key]) {
+                        const img = new Image();
+                        img.src = `${STATIC_IMAGES}cropped/${key}.png`;
+                        carImages[key] = img;
+                    }
+                }
+            }
+        }
 
         async function fetchRaceData() {
             const response = await fetch(`/racer/map/api/locations/all/${SESSION_KEY}/`);
@@ -334,13 +457,13 @@
 
             currentTime = earliestTime;
         }
-        
+
         async function fetchConditions() {
             try {
                 const sRes = await fetch(`https://api.openf1.org/v1/sessions?session_key=${SESSION_KEY}`);
                 const sData = await sRes.json();
                 const sessionDisp = document.getElementById('sessionDisp');
-                if(sData.length > 0 && sessionDisp) sessionDisp.innerText = sData[0].session_name.toUpperCase();
+                if (sData.length > 0 && sessionDisp) sessionDisp.innerText = sData[0].session_name.toUpperCase();
 
                 const wRes = await fetch(`https://api.openf1.org/v1/weather?session_key=${SESSION_KEY}`);
                 weatherData = await wRes.json();
@@ -349,7 +472,7 @@
                 const fRes = await fetch(`https://api.openf1.org/v1/track_status?session_key=${SESSION_KEY}`);
                 flagData = await fRes.json();
                 flagData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-                
+
             } catch (e) { console.error("Could not fetch conditions:", e); }
         }
 
@@ -452,6 +575,7 @@
                         }
                         searchP--; 
                     }
+                }
 
                     if (gapVal === null) gapVal = 100;
 
@@ -460,7 +584,7 @@
                     currentStandings.push({
                         num: num,
                         gap: gapVal,
-                        interval: parseFloat(record.interval) || 0,
+                        interval: parseFloat(record.int ?? record.interval) || 0,
                         meta: meta
                     });
                 }
@@ -489,7 +613,7 @@
             // --- DRAW CARS ---
             currentStandings.forEach((driver, index) => {
                 const x = (driver.gap / 120) * (intCanvas.width - 200) + 120;
-                const y = (index * 18) + 50;
+                const y = (index * 30) + 50;
                 let teamColor = driver.meta.team_colour.startsWith('#') ? driver.meta.team_colour : `#${driver.meta.team_colour}`;
 
                 intCtx.fillStyle = (index === 0) ? "#e10600" : "white";
@@ -505,16 +629,15 @@
                 intCtx.stroke();
                 intCtx.globalAlpha = 1.0;
 
-                let teamKey = driver.meta.team_name.replace(/\s+/g, '');
-                if (teamKey === "McLaren") teamKey = "Mclaren";
+                let teamKey = teamNameToKey(driver.meta.team_name);
 
                 const carImg = carImages[teamKey];
                 if (carImg && carImg.complete && carImg.naturalWidth > 0) {
-                    intCtx.drawImage(carImg, x - 15, y - 6, 30, 12);
+                    intCtx.drawImage(carImg, x - 45, y - 10, 90, 20);
                 } else {
                     intCtx.fillStyle = teamColor;
                     intCtx.beginPath();
-                    intCtx.arc(x, y, 5, 0, Math.PI * 2);
+                    intCtx.arc(x, y, 8, 0, Math.PI * 2);
                     intCtx.fill();
                 }
 
@@ -527,6 +650,25 @@
                 document.getElementById('biggest-gap').innerText = `+${maxGapFound.toFixed(3)}s`;
                 document.getElementById('closest-battle').innerText = (minIntervalFound === Infinity) ? "0.000s" : `${minIntervalFound.toFixed(3)}s`;
             }
+        }
+
+        function openDriverProfile(num) {
+            const meta = driverMetadata[num];
+            if (!meta) return;
+
+            document.getElementById('modal-name').innerText = meta.full_name;
+            document.getElementById('modal-team').innerText = meta.team_name;
+            document.getElementById('modal-headshot').src = meta.headshot_url || '';
+
+            // Mapping Team Name to your static images (e.g., "Red Bull Racing" -> "RedBullRacing.png")
+            const formattedTeamName = meta.team_name.replace(/\s+/g, '');
+            document.getElementById('modal-car').src = `${STATIC_IMAGES}${formattedTeamName}.png`;
+
+            document.getElementById('driver-modal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('driver-modal').style.display = 'none';
         }
 
         function render(now) {
@@ -544,31 +686,22 @@
                     btn.innerText = "RESTART";
                 }
 
-                // If this fails, the track below won't draw. We fixed it above!
                 renderIntervals();
             }
 
-            // Make the track visible with white (#FFFFFF)
+            // Make the track visible with white
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.strokeStyle = '#FFFFFF';
             ctx.lineWidth = 2;
             ctx.stroke(trackPath);
 
+            // DRAW DRIVERS
             for (let driver in driversData) {
-                
-                let pts = driversData[driver]
-                let p = driverPointers[driver] || 0; 
-
-                if (!isReversing) {
-                    while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
-                } else {
-                    while (p > 0 && pts[p][2] > currentTime) { p--; }
-                }
-                
-                driverPointers[driver] = p; 
+                let pts = driversData[driver];
+                let p = 0;
+                while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
 
                 let currentPoint = pts[p];
-                
                 if (currentPoint) {
                     const meta = driverMetadata[driver] || { last_name: 'Driver', team_colour: '444444' };
                     let teamColor = meta.team_colour.startsWith('#') ? meta.team_colour : "#" + meta.team_colour;
@@ -590,30 +723,25 @@
 
             // UPDATE UI CLOCK
             if (currentTime) {
-                const timeDisplay = document.getElementById('timeDisplay');
-                const date = new Date(currentTime);
-                timeDisplay.innerText = date.getUTCMinutes().toString().padStart(2, '0') + ":" +
-                    date.getUTCSeconds().toString().padStart(2, '0');
-            }        
+                document.getElementById('timeDisplay').innerText = new Date(currentTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            }
 
             // Sync Environment Conditions
             if (weatherData.length > 0) {
                 let wp = pointers.weather || 0;
-                if (!isReversing) { while (wp < weatherData.length - 1 && new Date(weatherData[wp + 1].date).getTime() <= currentTime) wp++; } 
+                if (!isReversing) { while (wp < weatherData.length - 1 && new Date(weatherData[wp + 1].date).getTime() <= currentTime) wp++; }
                 else { while (wp > 0 && new Date(weatherData[wp - 1].date).getTime() >= currentTime) wp--; }
                 pointers.weather = wp;
-                
+
                 const w = weatherData[wp];
-                
                 const speedEl = document.getElementById('windSpeed');
                 const dirEl = document.getElementById('windDir');
                 const arrowEl = document.getElementById('windArrow');
                 const rainEl = document.getElementById('rainDisp');
-                
+
                 if (speedEl) speedEl.innerText = w.wind_speed ?? "--";
                 if (dirEl) dirEl.innerText = w.wind_direction ?? "--";
                 if (rainEl) rainEl.innerText = (w.rainfall == 1) ? 'YES' : 'NO';
-                
                 if (arrowEl && w.wind_direction != null) {
                     arrowEl.style.transform = `rotate(${w.wind_direction}deg)`;
                 }
@@ -621,14 +749,14 @@
 
             if (flagData.length > 0) {
                 let fp = pointers.flag || 0;
-                if (!isReversing) { while (fp < flagData.length - 1 && new Date(flagData[fp + 1].date).getTime() <= currentTime) fp++; } 
+                if (!isReversing) { while (fp < flagData.length - 1 && new Date(flagData[fp + 1].date).getTime() <= currentTime) fp++; }
                 else { while (fp > 0 && new Date(flagData[fp - 1].date).getTime() >= currentTime) fp--; }
                 pointers.flag = fp;
 
                 const f = flagData[fp];
                 const statusMap = { "1": "CLEAR", "2": "YELLOW", "3": "NO OVERTAKING", "4": "SAFETY CAR", "5": "RED FLAG", "6": "VSC", "7": "VSC ENDING" };
                 const colorMap = { "1": "#00ff00", "2": "yellow", "4": "orange", "5": "red", "6": "orange" };
-                
+
                 const fDisplay = document.getElementById('flagDisp');
                 if (fDisplay) {
                     fDisplay.innerText = statusMap[f.status] || f.status;
@@ -636,12 +764,10 @@
                 }
             }
 
-            document.getElementById('timeDisplay').innerText = new Date(currentTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            
-            requestAnimationFrame(render);
+            animationId = requestAnimationFrame(render);
         }
 
-        // 4. Playback Listeners 
+        // Playback Listeners 
         btn.addEventListener('click', async () => {
             if (Object.keys(driversData).length === 0) {
                 btn.disabled = true;
@@ -675,7 +801,7 @@
             }
         });
 
-        // Keeping your original sorting and controls
+        // Keeping original sorting and controls
         function generateLeaderboard() {
             const leaderboard = document.getElementById('leaderboard');
             const sortValue = document.getElementById('sortOrder').value;
@@ -700,10 +826,19 @@
                 row.innerHTML = `<span class="name">${meta.last_name.toUpperCase()} <span style="opacity: 0.6; font-size: 0.85em;">- ${meta.team_name}</span></span><span class="points" style="font-weight: bold; color: ${color}">${num}</span>`;
                 row.addEventListener('mouseenter', () => { hoveredRacer = num; row.classList.add('highlighted'); });
                 row.addEventListener('mouseleave', () => { hoveredRacer = null; row.classList.remove('highlighted'); });
+                row.addEventListener('click', () => {
+                    openDriverProfile(num);
+                })
                 leaderboard.appendChild(row);
             });
         }
 
+        window.onclick = function (event) {
+            const modal = document.getElementById('driver-modal');
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
         document.getElementById('sortOrder').addEventListener('change', generateLeaderboard);
         document.getElementById('fastForward').onclick = () => { playbackSpeed = 100; isReversing = false; isPaused = false; btn.innerText = "PAUSE"; lastFrameTime = performance.now(); };
         document.getElementById('normalSpeed').onclick = () => { playbackSpeed = 20; isReversing = false; isPaused = false; btn.innerText = "PAUSE"; lastFrameTime = performance.now(); };
