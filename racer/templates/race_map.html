@@ -263,6 +263,8 @@
         let driversData = {};
         let intervalData = {};
         let carImages = {};
+        let driverPointers = {}
+        let intervalPointers = {}
         const canvas = document.getElementById('trackCanvas');
         const ctx = canvas.getContext('2d');
         const intCanvas = document.getElementById('intervalCanvas');
@@ -319,7 +321,16 @@
                 const intResult = await intResponse.json();
                 intervalData = intResult.intervals;
 
+                for (let num in intervalData) {
+                    intervalData[num].forEach(record => {
+                        record.timestamp = new Date(record.t).getTime(); 
+                });
+                // Ensure chronological order just in case the API response is messy
+                intervalData[num].sort((a, b) => a.timestamp - b.timestamp);
+            }    
+
                 currentTime = earliestTime;
+        
             } catch (e) { console.error("Data fetch error:", e); }
         }
         
@@ -369,35 +380,50 @@
 
             for (let num in intervalData) {
                 const history = intervalData[num];
-                let record = null;
-                let gapVal = 80; 
+                
+                // 1. Get the cached pointer for this driver (default to 0)
+                let p = intervalPointers[num] || 0;
 
-                for (let i = 0; i < history.length; i++) {
-                    if (history[i].t <= currentTime) {
-                        record = history[i];
-                        let rawGap = record.gap_to_leader !== undefined ? record.gap_to_leader : record.gap;
-                        
-                        if (rawGap !== null && rawGap !== undefined) {
-                            if (typeof rawGap === 'string' && rawGap.toUpperCase().includes('LAP')) {
-                                gapVal = (parseInt(rawGap) || 1) * 80; 
-                            } else {
-                                let parsed = parseFloat(rawGap);
-                                if (!isNaN(parsed)) {
-                                    gapVal = parsed; 
-                                }
-                            }
-                        }
-                    } else {
-                        break;
+                // 2. Move pointer forward or backward based on playback direction
+                if (!isReversing) {
+                    // Move forward until the NEXT record is in the future
+                    while (p < history.length - 1 && history[p + 1].timestamp <= currentTime) { 
+                        p++; 
+                    }
+                } else {
+                    // Move backward until the CURRENT record is in the past
+                    while (p > 0 && history[p].timestamp > currentTime) { 
+                        p--; 
                     }
                 }
 
-                if (record) {
+                // 3. Save the updated pointer for the next frame!
+                intervalPointers[num] = p;
+
+                // 4. Grab the record at our current pointer
+                let record = history[p];
+
+                // Proceed only if the record's time is actually at or before our current playback time
+                if (record && record.timestamp <= currentTime) {
+                    let gapVal = 80; 
+                    let rawGap = record.gap_to_leader !== undefined ? record.gap_to_leader : record.gap;
+                    
+                    if (rawGap !== null && rawGap !== undefined) {
+                        if (typeof rawGap === 'string' && rawGap.toUpperCase().includes('LAP')) {
+                            gapVal = (parseInt(rawGap) || 1) * 80; 
+                        } else {
+                            let parsed = parseFloat(rawGap);
+                            if (!isNaN(parsed)) {
+                                gapVal = parsed; 
+                            }
+                        }
+                    }
+
                     const meta = driverMetadata[num] || { last_name: `Driver ${num}`, team_colour: '444444', team_name: '' };
 
                     currentStandings.push({
                         num: num,
-                        gap: gapVal, // Uses the safely tracked gapVal from the loop
+                        gap: gapVal,
                         interval: parseFloat(record.interval) || 0,
                         meta: meta
                     });
@@ -495,13 +521,21 @@
             ctx.lineWidth = 2;
             ctx.stroke(trackPath);
 
-            // DRAW DRIVERS
             for (let driver in driversData) {
-                let pts = driversData[driver];
-                let p = 0;
-                while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
+                
+                let pts = driversData[driver]
+                let p = driverPointers[driver] || 0; 
+
+                if (!isReversing) {
+                    while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
+                } else {
+                    while (p > 0 && pts[p][2] > currentTime) { p--; }
+                }
+                
+                driverPointers[driver] = p; 
 
                 let currentPoint = pts[p];
+                
                 if (currentPoint) {
                     const meta = driverMetadata[driver] || { last_name: 'Driver', team_colour: '444444' };
                     let teamColor = meta.team_colour.startsWith('#') ? meta.team_colour : "#" + meta.team_colour;
@@ -529,8 +563,8 @@
                     date.getUTCSeconds().toString().padStart(2, '0');
             }
 
-            animationId = requestAnimationFrame(render);
-        }
+            //animationId = requestAnimationFrame(render);
+        
 
             // Sync Environment Conditions
             if (weatherData.length > 0) {
