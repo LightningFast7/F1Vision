@@ -542,7 +542,7 @@
                 if (currentTime > latestTime) {
                     currentTime = latestTime;
                     isPaused = true;
-                    btn.innerText = "FINISHED";
+                    btn.innerText = "RESTART";
                 }
 
                 // If this fails, the track below won't draw. We fixed it above!
@@ -657,9 +657,22 @@
                 lastFrameTime = performance.now();
                 requestAnimationFrame(render);
             } else {
-                isPaused = !isPaused;
-                btn.innerText = isPaused ? "RESUME" : "PAUSE";
-                if (!isPaused) lastFrameTime = performance.now();
+                if(btn.innerText=="RESTART"){
+                    currentTime = earliestTime
+                    for (let d in driverPointers) driverPointers[d] = 0;
+                    for (let i in intervalPointers) intervalPointers[i] = 0;
+                    pointers.weather = 0;
+                    pointers.flag = 0;
+                    isPaused = false;
+                    isReversing = false;
+                    playbackSpeed = 20; // Default back to normal speed
+                    btn.innerText = "PAUSE";
+                    lastFrameTime = performance.now();
+                } else {
+                    isPaused = !isPaused;
+                    btn.innerText = isPaused ? "RESUME" : "PAUSE";
+                    if (!isPaused) lastFrameTime = performance.now();
+                }
             }
         });
 
