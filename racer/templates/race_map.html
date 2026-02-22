@@ -373,6 +373,8 @@
         const intCanvas = document.getElementById('intervalCanvas');
         const intCtx = intCanvas.getContext('2d');
         const btn = document.getElementById('startRace');
+        let driverPointers = {};
+        let intervalPointers = {};
 
         const urlParams = new URLSearchParams(window.location.search);
         const SESSION_KEY = urlParams.get('session') || '9094';
@@ -575,7 +577,7 @@
                         }
                         searchP--; 
                     }
-                }
+                
 
                     if (gapVal === null) gapVal = 100;
 
@@ -588,7 +590,9 @@
                         meta: meta
                     });
                 }
+                    
             }
+            
 
             currentStandings.sort((a, b) => a.gap - b.gap);
 
@@ -628,6 +632,7 @@
                 intCtx.lineTo(x, y);
                 intCtx.stroke();
                 intCtx.globalAlpha = 1.0;
+                
 
                 let teamKey = teamNameToKey(driver.meta.team_name);
 
@@ -698,8 +703,19 @@
             // DRAW DRIVERS
             for (let driver in driversData) {
                 let pts = driversData[driver];
-                let p = 0;
-                while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
+                
+                // 1. Get the cached pointer (default to 0)
+                let p = driverPointers[driver] || 0;
+                
+                // 2. Move forward or backward based on playback direction
+                if (!isReversing) {
+                    while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
+                } else {
+                    while (p > 0 && pts[p][2] > currentTime) { p--; }
+                }
+                
+                // 3. Save it for the next frame
+                driverPointers[driver] = p;
 
                 let currentPoint = pts[p];
                 if (currentPoint) {
