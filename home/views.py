@@ -1,3 +1,9 @@
+import json
+import os
+from django.conf import settings
+from django.http import JsonResponse
 from django.shortcuts import render
 
-# Create your views here.
+def home_page_view(request):
+    # This renders your HTML page
+    return render(request, 'home.html')
