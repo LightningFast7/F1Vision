@@ -59,6 +59,10 @@ def download_optimized_locations(session_key):
     
     with open(filepath, 'w') as file:
         json.dump(optimized_data, file)
+
+    meta_filepath = os.path.join('race_data', f"drivers_{session_key}.json")
+    with open(meta_filepath, 'w') as file:
+        json.dump(drivers_data, file)
         
     print(f"\nSUCCESS: Optimized data saved to {filepath}!")
 

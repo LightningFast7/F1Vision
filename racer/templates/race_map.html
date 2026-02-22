@@ -72,6 +72,9 @@
             flex-grow: 1;
             font-weight: bold;
             margin-left: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .points {
@@ -149,11 +152,11 @@
     </div>
 
     <script>
+        let driverMetadata = {};
         const canvas = document.getElementById('trackCanvas');
         const ctx = canvas.getContext('2d');
         const btn = document.getElementById('startRace');
 
-        // Data Storage
         let driversData = {};
         let earliestTime = Infinity;
         let latestTime = -Infinity;
@@ -161,37 +164,39 @@
         let scale = 1, offsetX = 0, offsetY = 0;
         let trackPath = new Path2D();
 
-        // State Management
         let currentTime;
-        let playbackSpeed = 20; // Default speed multiplier
+        let playbackSpeed = 20;
         let isPaused = true;
         let isReversing = false;
         let hoveredRacer = null;
         let lastFrameTime = 0;
-        let pointers = {};
 
-        // Fetch & Group Data
         async function fetchRaceData() {
-            const response = await fetch('/racer/map/api/locations/all/9094/');
-            const result = await response.json();
-            const data = result.locations;
+            // Fetch Location Data
+            const locResponse = await fetch(`/racer/map/api/locations/all/9094/`);
+            const locResult = await locResponse.json();
+            const locData = locResult.locations;
 
-            driversData = data.drivers;
-            minX = data.bounds.minX;
-            maxX = data.bounds.maxX;
-            minY = data.bounds.minY;
-            maxY = data.bounds.maxY;
-            earliestTime = data.time.start;
-            latestTime = data.time.end;
+            driversData = locData.drivers;
+            minX = locData.bounds.minX;
+            maxX = locData.bounds.maxX;
+            minY = locData.bounds.minY;
+            maxY = locData.bounds.maxY;
+            earliestTime = locData.time.start;
+            latestTime = locData.time.end;
 
-            for (let d in driversData) {
-                pointers[d] = 0;
+            // Fetch Driver Names
+            try {
+                const driverResponse = await fetch(`/racer/map/api/drivers/9094/`);
+                const driverResult = await driverResponse.json();
+                driverMetadata = driverResult.drivers;
+            } catch (e) {
+                console.log("Metadata file not found, using defaults");
             }
 
             currentTime = earliestTime;
         }
 
-        // Scaling
         function calculateScale() {
             const trackWidth = maxX - minX;
             const trackHeight = maxY - minY;
@@ -199,9 +204,9 @@
             offsetX = (canvas.width - (trackWidth * scale)) / 2;
             offsetY = (canvas.height - (trackHeight * scale)) / 2;
 
-            // Pre-draw track outline
             trackPath = new Path2D();
-            const outlineDriver = driversData['14'] || driversData[Object.keys(driversData)[0]];
+            const firstDriver = Object.keys(driversData)[0];
+            const outlineDriver = driversData[firstDriver];
             outlineDriver.forEach((p, i) => {
                 const c = getCanvasCoords(p[0], p[1]);
                 if (i === 0) trackPath.moveTo(c.x, c.y); else trackPath.lineTo(c.x, c.y);
@@ -213,20 +218,39 @@
             leaderboard.innerHTML = '';
             const sortedDrivers = Object.keys(driversData).sort((a, b) => parseInt(a) - parseInt(b));
 
-            sortedDrivers.forEach(driverNum => {
+            sortedDrivers.forEach(num => {
+                const meta = driverMetadata[num] || {
+                    last_name: 'Driver',
+                    team_colour: '444444',
+                    team_name: 'F1 Team'
+                };
+
                 const row = document.createElement('div');
                 row.className = 'driver-row';
-                row.id = `row-${driverNum}`;
-                row.innerHTML = `<span class="name">${driverNum} DRIVER</span>
-                <span id="pts-${driverNum}" class = "points">0 pts </span>`;
+                row.id = `row-${num}`;
+
+                const color = meta.team_colour.startsWith('#') ? meta.team_colour : `#${meta.team_colour}`;
+                row.style.borderLeft = `6px solid ${color}`;
+
+                row.innerHTML = `
+            <span class="name">
+                ${meta.last_name.toUpperCase()}
+                <span style="opacity: 0.6; font-weight: normal; font-size: 0.85em;">
+                    - ${meta.team_name}
+                </span>
+            </span>
+            <span id="pts-${num}" class="points">${num}</span>
+        `;
+
                 row.addEventListener('mouseenter', () => {
-                    hoveredRacer = driverNum;
+                    hoveredRacer = num;
                     row.classList.add('highlighted');
                 });
                 row.addEventListener('mouseleave', () => {
                     hoveredRacer = null;
                     row.classList.remove('highlighted');
                 });
+
                 leaderboard.appendChild(row);
             });
         }
@@ -238,28 +262,18 @@
             };
         }
 
-        // Unified Animation Loop
         function render(now) {
-            // Calculate deltaTime but don't move currentTime if paused
             let deltaTime = now - lastFrameTime;
             lastFrameTime = now;
 
             if (!isPaused) {
-                if (isReversing) {
-                    currentTime -= deltaTime * playbackSpeed;
-                } else {
-                    currentTime += deltaTime * playbackSpeed;
-                }
+                if (isReversing) currentTime -= deltaTime * playbackSpeed;
+                else currentTime += deltaTime * playbackSpeed;
 
-                // Boundary Checks
                 if (currentTime < earliestTime) currentTime = earliestTime;
-                if (currentTime > latestTime) {
-                    isPaused = true;
-                    btn.innerText = "FINISHED";
-                }
+                if (currentTime > latestTime) { isPaused = true; btn.innerText = "FINISHED"; }
             }
 
-            // This part now runs EVERY frame, even when paused!
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // Draw Track
@@ -267,40 +281,43 @@
             ctx.lineWidth = 2;
             ctx.stroke(trackPath);
 
-            // Draw Drivers
             for (let driver in driversData) {
                 let pts = driversData[driver];
                 let p = 0;
-                while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) {
-                    p++;
-                }
+                while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
 
                 let currentPoint = pts[p];
                 if (currentPoint) {
+                    const meta = driverMetadata[driver] || { last_name: 'Driver', team_colour: '444444' };
+                    let teamColor = meta.team_colour;
+                    if (!teamColor.startsWith('#')) teamColor = "#" + teamColor;
                     const coords = getCanvasCoords(currentPoint[0], currentPoint[1]);
-                    const isHovered = (hoveredRacer === driver); // This check is now live!
+                    const isHovered = (hoveredRacer === driver);
 
-                    // Visuals
-                    ctx.fillStyle = isHovered ? '#ff0000' : '#00ff00';
-                    ctx.shadowBlur = isHovered ? 15 : 0;
-                    ctx.shadowColor = "red";
+                    ctx.fillStyle = isHovered ? '#e10600' : teamColor;
+                    ctx.shadowBlur = isHovered ? 20 : 0;
+                    ctx.shadowColor = isHovered ? '#ff0000' : "transparent";
 
                     ctx.beginPath();
-                    ctx.arc(coords.x, coords.y, isHovered ? 8 : 4, 0, Math.PI * 2);
+                    ctx.arc(coords.x, coords.y, isHovered ? 10 : 5, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.shadowBlur = 0;
 
                     ctx.fillStyle = "white";
-                    ctx.font = isHovered ? "bold 14px Arial" : "11px Arial";
-                    ctx.fillText(driver, coords.x + 8, coords.y - 8);
+                    ctx.font = isHovered ? "bold 14px Segoe UI" : "11px Segoe UI";
+                    ctx.fillText(driver, coords.x + 10, coords.y - 10);
                 }
             }
 
-            // Keep the loop alive so it can listen for hover changes
+            if (currentTime) {
+                const timeDisplay = document.getElementById('timeDisplay');
+                const date = new Date(currentTime);
+                timeDisplay.innerText = date.getUTCMinutes().toString().padStart(2, '0') + ":" +
+                    date.getUTCSeconds().toString().padStart(2, '0');
+            }
             requestAnimationFrame(render);
         }
 
-        // Playback Listeners
         btn.addEventListener('click', async () => {
             if (Object.keys(driversData).length === 0) {
                 btn.innerText = "LOADING...";
@@ -318,19 +335,6 @@
         document.getElementById('normalSpeed').onclick = () => { playbackSpeed = 20; isReversing = false; isPaused = false; };
         document.getElementById('slowMotion').onclick = () => { playbackSpeed = 5; isReversing = false; isPaused = false; };
         document.getElementById('prevFrame').onclick = () => { isReversing = true; isPaused = false; };
-
-        // Hover Logic
-        document.querySelectorAll('.driver-row').forEach(row => {
-            const id = row.id.split('-')[1]; // Get '14' from 'row-14'
-            row.addEventListener('mouseenter', () => {
-                hoveredRacer = id;
-                row.classList.add('highlighted');
-            });
-            row.addEventListener('mouseleave', () => {
-                hoveredRacer = null;
-                row.classList.remove('highlighted');
-            });
-        });
 
     </script>
 </body>
