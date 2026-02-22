@@ -271,6 +271,11 @@
         const intCtx = intCanvas.getContext('2d');
         const btn = document.getElementById('startRace');
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const SESSION_KEY = urlParams.get('session') || '9094';
+
+        // Data Storage
+        let driversData = {};
         let earliestTime = Infinity;
         let latestTime = -Infinity;
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -300,52 +305,49 @@
         });
 
         async function fetchRaceData() {
+            const response = await fetch(`/racer/map/api/locations/all/${SESSION_KEY}/`);
+            const result = await response.json();
+            const data = result.locations;
+
+            driversData = data.drivers;
+            minX = data.bounds.minX;
+            maxX = data.bounds.maxX;
+            minY = data.bounds.minY;
+            maxY = data.bounds.maxY;
+            
+            earliestTime = data.time.start;
+            latestTime = data.time.end;
+
             try {
-                const locResponse = await fetch(`/racer/map/api/locations/all/9094/`);
-                const locResult = await locResponse.json();
-                const locData = locResult.locations;
+                const lapRes = await fetch(`https://api.openf1.org/v1/laps?session_key=${SESSION_KEY}&driver_number=14`);
+                const laps = await lapRes.json();
+                if (laps && laps.length > 0) {
+                    let lap1Start = new Date(laps[0].date_start).getTime();
+                    // Advance the simulation clock to the exact moment Lap 1 starts
+                    if (lap1Start > earliestTime) earliestTime = lap1Start; 
+                }
+            } catch(e) { console.error("Could not fetch lap data to sync start time."); }
 
-                driversData = locData.drivers;
-                minX = locData.bounds.minX;
-                maxX = locData.bounds.maxX;
-                minY = locData.bounds.minY;
-                maxY = locData.bounds.maxY;
-                earliestTime = locData.time.start;
-                latestTime = locData.time.end;
+            // Initialize timeline pointers for all drivers
+            for (let d in driversData) {
+                pointers[d] = 0;
+            }
 
-                const driverResponse = await fetch(`/racer/map/api/drivers/9094/`);
-                const driverResult = await driverResponse.json();
-                driverMetadata = driverResult.drivers;
-
-                const intResponse = await fetch(`/racer/map/api/intervals/9094/`);
-                const intResult = await intResponse.json();
-                intervalData = intResult.intervals;
-
-                for (let num in intervalData) {
-                    intervalData[num].forEach(record => {
-                        record.timestamp = new Date(record.t).getTime(); 
-                });
-                // Ensure chronological order just in case the API response is messy
-                intervalData[num].sort((a, b) => a.timestamp - b.timestamp);
-            }    
-
-                currentTime = earliestTime;
-        
-            } catch (e) { console.error("Data fetch error:", e); }
+            currentTime = earliestTime;
         }
         
         async function fetchConditions() {
             try {
-                const sRes = await fetch('https://api.openf1.org/v1/sessions?session_key=9094');
+                const sRes = await fetch(`https://api.openf1.org/v1/sessions?session_key=${SESSION_KEY}`);
                 const sData = await sRes.json();
                 const sessionDisp = document.getElementById('sessionDisp');
                 if(sData.length > 0 && sessionDisp) sessionDisp.innerText = sData[0].session_name.toUpperCase();
 
-                const wRes = await fetch('https://api.openf1.org/v1/weather?session_key=9094');
+                const wRes = await fetch(`https://api.openf1.org/v1/weather?session_key=${SESSION_KEY}`);
                 weatherData = await wRes.json();
                 weatherData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-                const fRes = await fetch('https://api.openf1.org/v1/track_status?session_key=9094');
+                const fRes = await fetch(`https://api.openf1.org/v1/track_status?session_key=${SESSION_KEY}`);
                 flagData = await fRes.json();
                 flagData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
                 
