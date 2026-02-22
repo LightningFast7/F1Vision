@@ -188,7 +188,7 @@
 <body>
 
     <header>
-        <h1>2023 Monaco GP - Live Replay</h1>
+        <h1>Live Replay</h1>
     </header>
 
     <div class="main-layout">
@@ -414,44 +414,46 @@
 
             for (let num in intervalData) {
                 const history = intervalData[num];
-                
-                // 1. Get the cached pointer for this driver (default to 0)
                 let p = intervalPointers[num] || 0;
 
-                // 2. Move pointer forward or backward based on playback direction
                 if (!isReversing) {
-                    // Move forward until the NEXT record is in the future
-                    while (p < history.length - 1 && history[p + 1].timestamp <= currentTime) { 
-                        p++; 
-                    }
+                    while (p < history.length - 1 && history[p + 1].timestamp <= currentTime) { p++; }
                 } else {
-                    // Move backward until the CURRENT record is in the past
-                    while (p > 0 && history[p].timestamp > currentTime) { 
-                        p--; 
-                    }
+                    while (p > 0 && history[p].timestamp > currentTime) { p--; }
                 }
 
-                // 3. Save the updated pointer for the next frame!
                 intervalPointers[num] = p;
-
-                // 4. Grab the record at our current pointer
                 let record = history[p];
 
-                // Proceed only if the record's time is actually at or before our current playback time
                 if (record && record.timestamp <= currentTime) {
-                    let gapVal = 80; 
-                    let rawGap = record.gap_to_leader !== undefined ? record.gap_to_leader : record.gap;
                     
-                    if (rawGap !== null && rawGap !== undefined) {
-                        if (typeof rawGap === 'string' && rawGap.toUpperCase().includes('LAP')) {
-                            gapVal = (parseInt(rawGap) || 1) * 80; 
-                        } else {
-                            let parsed = parseFloat(rawGap);
-                            if (!isNaN(parsed)) {
-                                gapVal = parsed; 
+                    const timeUntilSessionEnd = latestTime - record.timestamp;
+                    if (p === history.length - 1 && (currentTime - record.timestamp) > 180000 & timeUntilSessionEnd > 300000) {
+                        continue; 
+                    }
+
+                    let gapVal = null;
+                    let searchP = p;
+
+                    
+                    while (searchP >= 0 && gapVal === null) {
+                        let searchRecord = history[searchP];
+                        let rawGap = searchRecord.gap_to_leader !== undefined ? searchRecord.gap_to_leader : searchRecord.gap;
+                        
+                        if (rawGap !== null && rawGap !== undefined) {
+                            if (typeof rawGap === 'string' && rawGap.toUpperCase().includes('LAP')) {
+                                gapVal = (parseInt(rawGap) || 1) * 80;
+                            } else {
+                                let parsed = parseFloat(rawGap);
+                                if (!isNaN(parsed)) {
+                                    gapVal = parsed;
+                                }
                             }
                         }
+                        searchP--; 
                     }
+
+                    if (gapVal === null) gapVal = 100;
 
                     const meta = driverMetadata[num] || { last_name: `Driver ${num}`, team_colour: '444444', team_name: '' };
 
@@ -466,7 +468,6 @@
 
             currentStandings.sort((a, b) => a.gap - b.gap);
 
-            // Draw Grid Lines
             intCtx.strokeStyle = "rgba(255, 255, 255, 0.15)";
             intCtx.lineWidth = 1;
             for (let s = 0; s <= 70; s += 5) {
@@ -485,7 +486,7 @@
             let maxGapFound = 0;
             let minIntervalFound = Infinity;
 
-            // Draw grid and cars
+            // --- DRAW CARS ---
             currentStandings.forEach((driver, index) => {
                 const x = (driver.gap / 120) * (intCanvas.width - 200) + 120;
                 const y = (index * 18) + 50;
@@ -496,7 +497,6 @@
                 intCtx.textAlign = "right";
                 intCtx.fillText(driver.meta.last_name.toUpperCase(), 110, y + 4);
 
-                // Draw Connector Line
                 intCtx.strokeStyle = teamColor;
                 intCtx.globalAlpha = 0.3;
                 intCtx.beginPath();
@@ -505,7 +505,6 @@
                 intCtx.stroke();
                 intCtx.globalAlpha = 1.0;
 
-                // Draw Car or Dot
                 let teamKey = driver.meta.team_name.replace(/\s+/g, '');
                 if (teamKey === "McLaren") teamKey = "Mclaren";
 
@@ -542,7 +541,7 @@
                 if (currentTime > latestTime) {
                     currentTime = latestTime;
                     isPaused = true;
-                    btn.innerText = "FINISHED";
+                    btn.innerText = "RESTART";
                 }
 
                 // If this fails, the track below won't draw. We fixed it above!
@@ -657,9 +656,22 @@
                 lastFrameTime = performance.now();
                 requestAnimationFrame(render);
             } else {
-                isPaused = !isPaused;
-                btn.innerText = isPaused ? "RESUME" : "PAUSE";
-                if (!isPaused) lastFrameTime = performance.now();
+                if(btn.innerText=="RESTART"){
+                    currentTime = earliestTime
+                    for (let d in driverPointers) driverPointers[d] = 0;
+                    for (let i in intervalPointers) intervalPointers[i] = 0;
+                    pointers.weather = 0;
+                    pointers.flag = 0;
+                    isPaused = false;
+                    isReversing = false;
+                    playbackSpeed = 20; // Default back to normal speed
+                    btn.innerText = "PAUSE";
+                    lastFrameTime = performance.now();
+                } else {
+                    isPaused = !isPaused;
+                    btn.innerText = isPaused ? "RESUME" : "PAUSE";
+                    if (!isPaused) lastFrameTime = performance.now();
+                }
             }
         });
 
