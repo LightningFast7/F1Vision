@@ -229,11 +229,8 @@
             padding: 30px;
             border-radius: 15px;
             border-bottom: 5px solid var(--f1-red);
-            /* F1 style accent */
             width: 400px;
-            /* Fixed width */
             max-height: 500px;
-            /* Prevents it from being too tall */
             text-align: center;
             position: relative;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
@@ -249,7 +246,6 @@
             background: #2b2b35;
             border: 3px solid #444;
             object-fit: cover;
-            /* Ensures headshot isn't stretched */
             margin-top: -10px;
         }
 
@@ -400,7 +396,7 @@
         let animationId = null;
         let lastKnownGaps = {};
 
-        // Maps a raw team_name string (from the API) to its image filename key.
+        // Maps a raw team_name string to its image filename key.
         const TEAM_NAME_EXCEPTIONS = {
             'HaasF1Team': 'HAAS',
             'AlphaTauri': 'RacingBull',
@@ -704,17 +700,17 @@
             for (let driver in driversData) {
                 let pts = driversData[driver];
                 
-                // 1. Get the cached pointer (default to 0)
+                // Get the cached pointer (default to 0)
                 let p = driverPointers[driver] || 0;
                 
-                // 2. Move forward or backward based on playback direction
+                // Move forward or backward based on playback direction
                 if (!isReversing) {
                     while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
                 } else {
                     while (p > 0 && pts[p][2] > currentTime) { p--; }
                 }
                 
-                // 3. Save it for the next frame
+                // Save it for the next frame
                 driverPointers[driver] = p;
 
                 let currentPoint = pts[p];
