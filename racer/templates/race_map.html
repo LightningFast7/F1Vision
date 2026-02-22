@@ -275,7 +275,6 @@
         const SESSION_KEY = urlParams.get('session') || '9094';
 
         // Data Storage
-        let driversData = {};
         let earliestTime = Infinity;
         let latestTime = -Infinity;
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -352,6 +351,39 @@
                 flagData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
                 
             } catch (e) { console.error("Could not fetch conditions:", e); }
+        }
+
+        async function fetchDriverMetadata() {
+            try{
+                const response = await fetch(`/racer/map/api/drivers/${SESSION_KEY}/`);
+                const data = await response.json();
+
+                if (data.drivers){
+                    driverMetadata = data.drivers;
+                }
+            } catch (e) {
+                console.error("Couldn't fetch the driver's metadata", e);
+            }
+        }
+
+        async function fetchIntervalData() {
+            try{
+                const response = await fetch(`/racer/map/api/intervals/${SESSION_KEY}/`);
+                const data = await response.json();
+
+                if (data.intervals){
+                    intervalData = data.intervals;
+
+                    for (let num in intervalData){
+                        intervalData[num].forEach(record=>{
+                            record.timestamp=new Date(record.t).getTime();
+                        });
+                        intervalData[num].sort((a,b)=> a.timestamp - b.timestamp);
+                    }
+                }
+            } catch (e) {
+                console.error("Couldn't fetch the interval data:", e);
+            }
         }
 
         function calculateScale() {
@@ -563,10 +595,7 @@
                 const date = new Date(currentTime);
                 timeDisplay.innerText = date.getUTCMinutes().toString().padStart(2, '0') + ":" +
                     date.getUTCSeconds().toString().padStart(2, '0');
-            }
-
-            //animationId = requestAnimationFrame(render);
-        
+            }        
 
             // Sync Environment Conditions
             if (weatherData.length > 0) {
@@ -618,7 +647,7 @@
             if (Object.keys(driversData).length === 0) {
                 btn.disabled = true;
                 btn.innerText = "LOADING...";
-                await Promise.all([fetchRaceData(), fetchConditions()]); 
+                await Promise.all([fetchRaceData(), fetchConditions(), fetchDriverMetadata(), fetchIntervalData()]); 
                 calculateScale();
                 generateLeaderboard();
                 btn.disabled = false;

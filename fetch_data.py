@@ -66,8 +66,7 @@ def download_optimized_locations(session_key):
         
     print(f"\nSUCCESS: Optimized data saved to {filepath}!")
 
-download_optimized_locations(9955)
-download_optimized_locations(9912)
+
 def download_intervals(session_key):
     print(f"Fetching intervals for Session {session_key}...")
     url = f"https://api.openf1.org/v1/intervals?session_key={session_key}"
@@ -94,5 +93,7 @@ def download_intervals(session_key):
             json.dump(processed_intervals, file)
         print(f"SUCCESS: Interval data saved to {filepath}!")
 
-download_optimized_locations(9094)
-download_intervals(9094)
+download_optimized_locations(9955)
+download_intervals(9955)
+download_optimized_locations(9912)
+download_intervals(9912)
