@@ -102,7 +102,7 @@
             margin-top: 15px;
             font-size: 14px;
         }
-        
+
         .condition-item {
             display: flex;
             flex-direction: column;
@@ -183,10 +183,103 @@
             border: 1px solid #333;
             overflow: hidden;
         }
+
+        #back-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: #2b2b35;
+            color: white;
+            border: 1px solid #444;
+            padding: 10px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 999;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        #back-btn:hover {
+            background: #3a3a48;
+            border-color: var(--f1-red);
+        }
+
+        /* Modified Modal Styling for a "Card" look */
+        #driver-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            /* Darker overlay */
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: var(--panel-bg);
+            padding: 30px;
+            border-radius: 15px;
+            border-bottom: 5px solid var(--f1-red);
+            /* F1 style accent */
+            width: 400px;
+            /* Fixed width */
+            max-height: 500px;
+            /* Prevents it from being too tall */
+            text-align: center;
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .modal-headshot {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: #2b2b35;
+            border: 3px solid #444;
+            object-fit: cover;
+            /* Ensures headshot isn't stretched */
+            margin-top: -10px;
+        }
+
+        .modal-car {
+            width: 100%;
+            max-width: 320px;
+            height: auto;
+            margin-top: 20px;
+            filter: drop-shadow(0 5px 15px rgba(0, 0, 0, 0.3));
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 28px;
+            color: #888;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .close-modal:hover {
+            color: white;
+        }
     </style>
 </head>
 
 <body>
+
+    <a id="back-btn" href="/">&#8592; Main Menu</a>
 
     <header>
         <h1>2023 Monaco GP - Live Replay</h1>
@@ -205,6 +298,15 @@
                 </select>
             </div>
             <div id="leaderboard" style="display: flex; flex-direction: column; gap: 10px;">
+            </div>
+            <div id="driver-modal">
+                <div class="modal-content">
+                    <span class="close-modal" onclick="closeModal()">&times;</span>
+                    <img id="modal-headshot" class="modal-headshot" src="" alt="Driver Headshot">
+                    <h2 id="modal-name" style="margin: 15px 0 5px 0;"></h2>
+                    <p id="modal-team" style="opacity: 0.7; margin-bottom: 20px;"></p>
+                    <img id="modal-car" class="modal-car" src="" alt="Team Car">
+                </div>
             </div>
         </section>
 
@@ -227,24 +329,26 @@
                     <span>SESSION</span>
                     <span class="condition-value" id="sessionDisp">--</span>
                 </div>
-                
+
                 <div class="condition-item">
                     <span>FLAG</span>
                     <span class="condition-value" id="flagDisp" style="color: #00ff00;">--</span>
                 </div>
-                
+
                 <div class="condition-item">
                     <span>RAINFALL</span>
                     <span class="condition-value" id="rainDisp">--</span>
                 </div>
 
                 <div class="weather-panel">
-                    <div style="color: var(--f1-red); font-weight: bold; font-family: 'Segoe UI', sans-serif;">WIND CONDITIONS</div>
+                    <div style="color: var(--f1-red); font-weight: bold; font-family: 'Segoe UI', sans-serif;">WIND
+                        CONDITIONS</div>
                     <div class="weather-item">Speed: <span class="condition-value" id="windSpeed">--</span> m/s</div>
-                    <div class="weather-item">Dir: <span class="condition-value" id="windDir">--</span>° <span class="wind-arrow" id="windArrow">⬆</span></div>
+                    <div class="weather-item">Dir: <span class="condition-value" id="windDir">--</span>° <span
+                            class="wind-arrow" id="windArrow">⬆</span></div>
                 </div>
             </div>
-            
+
         </section>
     </div>
 
@@ -260,14 +364,10 @@
 
     <script>
         const STATIC_IMAGES = "{% static 'images/' %}";
-
-        // 1. GLOBAL SCOPE
         let driverMetadata = {};
         let driversData = {};
         let intervalData = {};
         let carImages = {};
-        let driverPointers = {}
-        let intervalPointers = {}
         const canvas = document.getElementById('trackCanvas');
         const ctx = canvas.getContext('2d');
         const intCanvas = document.getElementById('intervalCanvas');
@@ -282,11 +382,11 @@
 
         let weatherData = [];
         let flagData = [];
-        let pointers = {weather: 0, flag: 0};
+        let pointers = { weather: 0, flag: 0 };
 
         // State Management 
         let currentTime;
-        let playbackSpeed = 20; 
+        let playbackSpeed = 20;
         let isPaused = true;
         let isReversing = false;
         let hoveredRacer = null;
@@ -294,12 +394,12 @@
         let animationId = null;
         let lastKnownGaps = {};
 
-
+        // Maps a raw team_name string (from the API) to its image filename key.
         const TEAM_NAME_EXCEPTIONS = {
-            'HaasF1Team':  'HAAS',
-            'AlphaTauri':  'RacingBull',   // rebranded to Visa Cash App RB
-            'McLaren':     'Mclaren',      // filename uses lowercase 'l'
-            'AlfaRomeo':   'Sauber',       // rebranded; use Sauber livery image
+            'HaasF1Team': 'HAAS',
+            'AlphaTauri': 'RacingBull',
+            'McLaren': 'Mclaren',
+            'AlfaRomeo': 'Sauber',
         };
 
         function teamNameToKey(teamName) {
@@ -307,8 +407,6 @@
             return TEAM_NAME_EXCEPTIONS[stripped] || stripped;
         }
 
-        // Called after driverMetadata is loaded — dynamically preloads only the
-        // teams actually present in this race, so no hardcoded list is needed.
         function preloadCarImages(driverMetaMap) {
             const seen = new Set();
             for (const num in driverMetaMap) {
@@ -347,25 +445,16 @@
                 const intResult = await intResponse.json();
                 intervalData = intResult.intervals;
 
-                for (let num in intervalData) {
-                    intervalData[num].forEach(record => {
-                        record.timestamp = new Date(record.t).getTime(); 
-                });
-                // Ensure chronological order just in case the API response is messy
-                intervalData[num].sort((a, b) => a.timestamp - b.timestamp);
-            }    
-
                 currentTime = earliestTime;
-        
             } catch (e) { console.error("Data fetch error:", e); }
         }
-        
+
         async function fetchConditions() {
             try {
                 const sRes = await fetch('https://api.openf1.org/v1/sessions?session_key=9094');
                 const sData = await sRes.json();
                 const sessionDisp = document.getElementById('sessionDisp');
-                if(sData.length > 0 && sessionDisp) sessionDisp.innerText = sData[0].session_name.toUpperCase();
+                if (sData.length > 0 && sessionDisp) sessionDisp.innerText = sData[0].session_name.toUpperCase();
 
                 const wRes = await fetch('https://api.openf1.org/v1/weather?session_key=9094');
                 weatherData = await wRes.json();
@@ -374,7 +463,7 @@
                 const fRes = await fetch('https://api.openf1.org/v1/track_status?session_key=9094');
                 flagData = await fRes.json();
                 flagData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-                
+
             } catch (e) { console.error("Could not fetch conditions:", e); }
         }
 
@@ -406,51 +495,36 @@
 
             for (let num in intervalData) {
                 const history = intervalData[num];
-                
-                // 1. Get the cached pointer for this driver (default to 0)
-                let p = intervalPointers[num] || 0;
+                let record = null;
+                let gapVal = 80;
 
-                // 2. Move pointer forward or backward based on playback direction
-                if (!isReversing) {
-                    // Move forward until the NEXT record is in the future
-                    while (p < history.length - 1 && history[p + 1].timestamp <= currentTime) { 
-                        p++; 
-                    }
-                } else {
-                    // Move backward until the CURRENT record is in the past
-                    while (p > 0 && history[p].timestamp > currentTime) { 
-                        p--; 
+                for (let i = 0; i < history.length; i++) {
+                    if (history[i].t <= currentTime) {
+                        record = history[i];
+                        let rawGap = record.gap_to_leader !== undefined ? record.gap_to_leader : record.gap;
+
+                        if (rawGap !== null && rawGap !== undefined) {
+                            if (typeof rawGap === 'string' && rawGap.toUpperCase().includes('LAP')) {
+                                gapVal = (parseInt(rawGap) || 1) * 80;
+                            } else {
+                                let parsed = parseFloat(rawGap);
+                                if (!isNaN(parsed)) {
+                                    gapVal = parsed;
+                                }
+                            }
+                        }
+                    } else {
+                        break;
                     }
                 }
 
-                // 3. Save the updated pointer for the next frame!
-                intervalPointers[num] = p;
-
-                // 4. Grab the record at our current pointer
-                let record = history[p];
-
-                // Proceed only if the record's time is actually at or before our current playback time
-                if (record && record.timestamp <= currentTime) {
-                    let gapVal = 80; 
-                    let rawGap = record.gap_to_leader !== undefined ? record.gap_to_leader : record.gap;
-                    
-                    if (rawGap !== null && rawGap !== undefined) {
-                        if (typeof rawGap === 'string' && rawGap.toUpperCase().includes('LAP')) {
-                            gapVal = (parseInt(rawGap) || 1) * 80; 
-                        } else {
-                            let parsed = parseFloat(rawGap);
-                            if (!isNaN(parsed)) {
-                                gapVal = parsed; 
-                            }
-                        }
-                    }
-
+                if (record) {
                     const meta = driverMetadata[num] || { last_name: `Driver ${num}`, team_colour: '444444', team_name: '' };
 
                     currentStandings.push({
                         num: num,
                         gap: gapVal,
-                        interval: parseFloat(record.interval) || 0,
+                        interval: parseFloat(record.int ?? record.interval) || 0,
                         meta: meta
                     });
                 }
@@ -497,7 +571,6 @@
                 intCtx.stroke();
                 intCtx.globalAlpha = 1.0;
 
-                // Draw Car or Dot — use the shared normalization function
                 let teamKey = teamNameToKey(driver.meta.team_name);
 
                 const carImg = carImages[teamKey];
@@ -521,6 +594,25 @@
             }
         }
 
+        function openDriverProfile(num) {
+            const meta = driverMetadata[num];
+            if (!meta) return;
+
+            document.getElementById('modal-name').innerText = meta.full_name;
+            document.getElementById('modal-team').innerText = meta.team_name;
+            document.getElementById('modal-headshot').src = meta.headshot_url || '';
+
+            // Mapping Team Name to your static images (e.g., "Red Bull Racing" -> "RedBullRacing.png")
+            const formattedTeamName = meta.team_name.replace(/\s+/g, '');
+            document.getElementById('modal-car').src = `${STATIC_IMAGES}${formattedTeamName}.png`;
+
+            document.getElementById('driver-modal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('driver-modal').style.display = 'none';
+        }
+
         function render(now) {
             let deltaTime = now - lastFrameTime;
             lastFrameTime = now;
@@ -536,31 +628,22 @@
                     btn.innerText = "FINISHED";
                 }
 
-                // If this fails, the track below won't draw. We fixed it above!
                 renderIntervals();
             }
 
-            // Make the track visible with white (#FFFFFF)
+            // Make the track visible with white
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.strokeStyle = '#FFFFFF';
             ctx.lineWidth = 2;
             ctx.stroke(trackPath);
 
+            // DRAW DRIVERS
             for (let driver in driversData) {
-                
-                let pts = driversData[driver]
-                let p = driverPointers[driver] || 0; 
-
-                if (!isReversing) {
-                    while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
-                } else {
-                    while (p > 0 && pts[p][2] > currentTime) { p--; }
-                }
-                
-                driverPointers[driver] = p; 
+                let pts = driversData[driver];
+                let p = 0;
+                while (p < pts.length - 1 && pts[p + 1][2] <= currentTime) { p++; }
 
                 let currentPoint = pts[p];
-                
                 if (currentPoint) {
                     const meta = driverMetadata[driver] || { last_name: 'Driver', team_colour: '444444' };
                     let teamColor = meta.team_colour.startsWith('#') ? meta.team_colour : "#" + meta.team_colour;
@@ -582,14 +665,8 @@
 
             // UPDATE UI CLOCK
             if (currentTime) {
-                const timeDisplay = document.getElementById('timeDisplay');
-                const date = new Date(currentTime);
-                timeDisplay.innerText = date.getUTCMinutes().toString().padStart(2, '0') + ":" +
-                    date.getUTCSeconds().toString().padStart(2, '0');
+                document.getElementById('timeDisplay').innerText = new Date(currentTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             }
-
-            //animationId = requestAnimationFrame(render);
-        
 
             // Sync Environment Conditions
             if (weatherData.length > 0) {
@@ -632,12 +709,12 @@
             animationId = requestAnimationFrame(render);
         }
 
-        // 4. Playback Listeners 
+        // Playback Listeners 
         btn.addEventListener('click', async () => {
             if (Object.keys(driversData).length === 0) {
                 btn.disabled = true;
                 btn.innerText = "LOADING...";
-                await Promise.all([fetchRaceData(), fetchConditions()]); 
+                await Promise.all([fetchRaceData(), fetchConditions()]);
                 calculateScale();
                 generateLeaderboard();
                 btn.disabled = false;
@@ -653,7 +730,7 @@
             }
         });
 
-        // Keeping your original sorting and controls
+        // Keeping original sorting and controls
         function generateLeaderboard() {
             const leaderboard = document.getElementById('leaderboard');
             const sortValue = document.getElementById('sortOrder').value;
@@ -678,10 +755,19 @@
                 row.innerHTML = `<span class="name">${meta.last_name.toUpperCase()} <span style="opacity: 0.6; font-size: 0.85em;">- ${meta.team_name}</span></span><span class="points" style="font-weight: bold; color: ${color}">${num}</span>`;
                 row.addEventListener('mouseenter', () => { hoveredRacer = num; row.classList.add('highlighted'); });
                 row.addEventListener('mouseleave', () => { hoveredRacer = null; row.classList.remove('highlighted'); });
+                row.addEventListener('click', () => {
+                    openDriverProfile(num);
+                })
                 leaderboard.appendChild(row);
             });
         }
 
+        window.onclick = function (event) {
+            const modal = document.getElementById('driver-modal');
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
         document.getElementById('sortOrder').addEventListener('change', generateLeaderboard);
         document.getElementById('fastForward').onclick = () => { playbackSpeed = 100; isReversing = false; isPaused = false; btn.innerText = "PAUSE"; lastFrameTime = performance.now(); };
         document.getElementById('normalSpeed').onclick = () => { playbackSpeed = 20; isReversing = false; isPaused = false; btn.innerText = "PAUSE"; lastFrameTime = performance.now(); };

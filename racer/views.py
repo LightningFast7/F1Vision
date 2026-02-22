@@ -37,7 +37,9 @@ def get_driver_names(request, session_key):
                 driver_map[num] = {
                     'last_name': driver.get('last_name', 'Driver'),
                     'team_colour': driver.get('team_colour', '444444'),
-                    'team_name': driver.get('team_name', 'Independent')
+                    'team_name': driver.get('team_name', 'Independent'),
+                    'full_name':driver.get('full_name'),
+                    'headshot_url':driver.get('headshot_url')
                 }
         else:
             num = str(data.get('driver_number'))
