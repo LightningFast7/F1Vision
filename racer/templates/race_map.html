@@ -212,6 +212,7 @@
         let hoveredRacer = null;
         let lastFrameTime = 0;
         let animationId = null;
+        let lastKnownGaps = {};
 
         // Pre-load images
         const teams = ['RedBullRacing', 'Mercedes', 'Ferrari', 'McLaren', 'Alpine', 'AstonMartin', 'Williams', 'AlfaRomeo', 'HAAS', 'Sauber', 'RacingBull'];
@@ -276,25 +277,34 @@
             for (let num in intervalData) {
                 const history = intervalData[num];
                 let record = null;
+                let gapVal = 80; 
+
                 for (let i = 0; i < history.length; i++) {
-                    if (history[i].t <= currentTime) record = history[i];
-                    else break;
+                    if (history[i].t <= currentTime) {
+                        record = history[i];
+                        let rawGap = record.gap_to_leader !== undefined ? record.gap_to_leader : record.gap;
+                        
+                        if (rawGap !== null && rawGap !== undefined) {
+                            if (typeof rawGap === 'string' && rawGap.toUpperCase().includes('LAP')) {
+                                gapVal = (parseInt(rawGap) || 1) * 80; 
+                            } else {
+                                let parsed = parseFloat(rawGap);
+                                if (!isNaN(parsed)) {
+                                    gapVal = parsed; 
+                                }
+                            }
+                        }
+                    } else {
+                        break;
+                    }
                 }
 
                 if (record) {
-                    let rawGap = record.gap_to_leader || record.gap || "0";
-                    let gapVal = parseFloat(rawGap) || 0;
-
-                    if (typeof rawGap === 'string' && rawGap.toUpperCase().includes('LAP')) {
-                        let lapsDown = parseInt(rawGap) || 1;
-                        gapVal = lapsDown * 80;
-                    }
-
                     const meta = driverMetadata[num] || { last_name: `Driver ${num}`, team_colour: '444444', team_name: '' };
 
                     currentStandings.push({
                         num: num,
-                        gap: gapVal,
+                        gap: gapVal, // Uses the safely tracked gapVal from the loop
                         interval: parseFloat(record.interval) || 0,
                         meta: meta
                     });
