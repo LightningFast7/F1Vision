@@ -62,4 +62,5 @@ def download_optimized_locations(session_key):
         
     print(f"\nSUCCESS: Optimized data saved to {filepath}!")
 
-download_optimized_locations(9094)
+download_optimized_locations(9955)
+download_optimized_locations(9912)
