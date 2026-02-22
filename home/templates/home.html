@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Vision - Race Selection</title>
+    <style>
+        :root {
+            --f1-red: #e10600;
+            --dark-bg: #15151e;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--dark-bg);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            
+            /* Cool diagonal racing stripe background */
+            background: repeating-linear-gradient(
+                45deg,
+                #101017,
+                #101017 10px,
+                #15151e 10px,
+                #15151e 20px
+            );
+        }
+
+        /* Dark vignette overlay to make the center pop */
+        .overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(circle at center, transparent 0%, rgba(15,15,20, 0.95) 80%);
+            z-index: 1;
+        }
+
+        .container {
+            position: relative;
+            z-index: 2;
+            background: rgba(31, 31, 39, 0.95);
+            padding: 50px 60px;
+            border-radius: 15px;
+            border-top: 5px solid var(--f1-red);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+            backdrop-filter: blur(10px);
+        }
+
+        h1 {
+            font-size: 3.5em;
+            margin: 0 0 10px 0;
+            font-style: italic;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            text-shadow: 3px 3px 0px var(--f1-red);
+        }
+
+        p {
+            color: #ccc;
+            font-size: 1.1em;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        select {
+            padding: 15px;
+            background-color: #2b2b35;
+            color: white;
+            border: 2px solid #444;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+            cursor: pointer;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        select:focus {
+            border-color: var(--f1-red);
+        }
+
+        button {
+            padding: 15px;
+            background-color: var(--f1-red);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(225, 6, 0, 0.4);
+            background-color: #ff1a1a;
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay"></div>
+    <div class="container">
+        <h1>F1 Vision</h1>
+        <p>Welcome to the ultimate F1 telemetry and race visualization hub. Select a Grand Prix to begin the simulation.</p>
+        
+        <form action="/racer/map/" method="GET">
+            <select name="session" id="race-select" required>
+                <option value="" disabled selected>-- Choose a Grand Prix --</option>
+                <option value="9094">2023 Monaco Grand Prix</option>
+                <option value="9116">2023 British Grand Prix</option>
+                <option value="9158">2023 Italian Grand Prix</option>
+            </select>
+            <button type="submit">Launch Simulation</button>
+        </form>
+    </div>
+</body>
+</html>
