@@ -188,7 +188,7 @@
 <body>
 
     <header>
-        <h1>2023 Monaco GP - Live Replay</h1>
+        <h1>Live Replay</h1>
     </header>
 
     <div class="main-layout">
@@ -427,8 +427,8 @@
 
                 if (record && record.timestamp <= currentTime) {
                     
-                    
-                    if (p === history.length - 1 && (currentTime - record.timestamp) > 180000) {
+                    const timeUntilSessionEnd = latestTime - record.timestamp;
+                    if (p === history.length - 1 && (currentTime - record.timestamp) > 180000 & timeUntilSessionEnd > 300000) {
                         continue; 
                     }
 
